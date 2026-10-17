@@ -86,6 +86,7 @@ namespace SWYF.ThaiMod
                     continue;
                 }
                 ThaiVoices.PrepareFillers(voicePath);
+                ThaiCloudStt.NoteCallerLine(spoken);
 
                 // OpenAI: stream audio into the game as it arrives (first sound after ~1 s instead of the whole line).
                 bool streamTried = false;

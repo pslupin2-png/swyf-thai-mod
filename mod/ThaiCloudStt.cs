@@ -66,10 +66,35 @@ namespace SWYF.ThaiMod
             }
         }
 
+        // The caller's last line, given to Whisper as context ("prompt") so topic words are spelled right.
+        private static string lastCallerLine;
+        private static long lastCallerTicks;
+
+        public static void NoteCallerLine(string text)
+        {
+            if (string.IsNullOrEmpty(text) || ThaiText.IsFiller(text)) return;
+            string t = text.Trim();
+            if (t.Length > 150)
+            {
+                int cut = t.IndexOf(' ', t.Length - 150); // keep the end (the question the player answers), from a word boundary
+                t = cut >= 0 && cut < t.Length - 20 ? t.Substring(cut + 1) : t.Substring(t.Length - 150);
+            }
+            lastCallerLine = t;
+            System.Threading.Interlocked.Exchange(ref lastCallerTicks, DateTime.UtcNow.Ticks);
+        }
+
+        private static string Context()
+        {
+            string t = lastCallerLine;
+            if (t == null) return null;
+            if (DateTime.UtcNow.Ticks - System.Threading.Interlocked.Read(ref lastCallerTicks) > TimeSpan.FromMinutes(2).Ticks) return null;
+            return t;
+        }
+
         private sealed class Job
         {
             public WhisperManager Mgr; public float[] Samples; public int Freq, Ch; public byte[] Body; public string Boundary, Key;
-            public double Seconds; public DateTime Started;
+            public double Seconds; public DateTime Started; public string Prompt, Level;
             public TaskCompletionSource<WhisperResult> Tcs = new TaskCompletionSource<WhisperResult>();
         }
         private static readonly Queue<Job> pending = new Queue<Job>();
@@ -85,7 +110,13 @@ namespace SWYF.ThaiMod
             var job = new Job { Mgr = mgr, Samples = samples, Freq = frequency, Ch = channels, Key = key,
                                 Seconds = samples.Length / (double)Math.Max(1, frequency * Math.Max(1, channels)) };
             job.Boundary = "----swyf" + Guid.NewGuid().ToString("N");
-            job.Body = BuildBody(job.Boundary, EncodeWav(samples, frequency, channels));
+            float peak = 0f; double sum = 0; int clipped = 0;
+            foreach (float v in samples) { float a = v < 0 ? -v : v; if (a > peak) peak = a; sum += v * v; if (a >= 0.99f) clipped++; }
+            double rms = Math.Sqrt(sum / Math.Max(1, samples.Length));
+            job.Level = "peak " + peak.ToString("0.00") + ", rms " + rms.ToString("0.000") + (clipped > 0 ? ", clipped " + (100.0 * clipped / samples.Length).ToString("0.0") + "%" : "");
+            // Whisper misses a first syllable that starts right at the edge of the clip: add 0.3 s of quiet on both sides.
+            job.Prompt = rms > 0.004 && job.Seconds >= 0.6 ? Context() : null; // no context for near-silent clips (Whisper may echo it)
+            job.Body = BuildBody(job.Boundary, EncodeWav(Pad(samples, frequency, channels, 0.3), frequency, channels), job.Prompt);
             lock (pending) pending.Enqueue(job);
             return job.Tcs.Task;
         }
@@ -117,7 +148,9 @@ namespace SWYF.ThaiMod
                 try
                 {
                     string text = ExtractText(body ?? "");
-                    ThaiModEntry.Log("Groq " + job.Seconds.ToString("0.0") + " s audio -> " + (DateTime.UtcNow - job.Started).TotalSeconds.ToString("0.00") + " s: " + text);
+                    if (job.Prompt != null && Same(text, job.Prompt)) { ThaiModEntry.Warn("Groq echoed the context instead of hearing speech; ignored"); text = ""; }
+                    ThaiModEntry.Log("Groq " + job.Seconds.ToString("0.0") + " s audio (" + job.Level + (job.Prompt != null ? ", with context" : "") + ") -> " +
+                                     (DateTime.UtcNow - job.Started).TotalSeconds.ToString("0.00") + " s: " + text);
                     var seg = new WhisperSegment(0, text, 0UL, (ulong)(job.Seconds * 100));
                     job.Tcs.TrySetResult(new WhisperResult(new List<WhisperSegment> { seg }, ThaiLanguageId));
                 }
@@ -156,7 +189,15 @@ namespace SWYF.ThaiMod
             catch (Exception e) { job.Tcs.TrySetException(e); }
         }
 
-        private static byte[] BuildBody(string boundary, byte[] wav)
+        private static float[] Pad(float[] samples, int frequency, int channels, double seconds)
+        {
+            int pad = (int)(Math.Max(1, frequency) * seconds) * Math.Max(1, channels);
+            var res = new float[samples.Length + 2 * pad];
+            Array.Copy(samples, 0, res, pad, samples.Length);
+            return res;
+        }
+
+        private static byte[] BuildBody(string boundary, byte[] wav, string prompt)
         {
             var body = new MemoryStream();
             void Field(string name, string value)
@@ -167,6 +208,7 @@ namespace SWYF.ThaiMod
             Field("language", "th");
             Field("temperature", "0");
             Field("response_format", "json");
+            if (!string.IsNullOrEmpty(prompt)) Field("prompt", prompt);
             Write(body, "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n");
             body.Write(wav, 0, wav.Length);
             Write(body, "\r\n--" + boundary + "--\r\n");
@@ -196,6 +238,12 @@ namespace SWYF.ThaiMod
             }
             w.Flush();
             return ms.ToArray();
+        }
+
+        private static bool Same(string a, string b)
+        {
+            string x = (a ?? "").Replace(" ", "").TrimEnd('.', '?', '!'), y = (b ?? "").Replace(" ", "").TrimEnd('.', '?', '!');
+            return x.Length > 0 && (x == y || (x.Length >= 12 && y.EndsWith(x, StringComparison.Ordinal)));
         }
 
         // Minimal JSON: return the value of the top-level "text" string.
