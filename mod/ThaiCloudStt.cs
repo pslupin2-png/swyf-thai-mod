@@ -78,6 +78,7 @@ namespace SWYF.ThaiMod
         public static Task<WhisperResult> TryTranscribe(WhisperManager mgr, float[] samples, int frequency, int channels)
         {
             if (bypass || mgr == null || samples == null || mgr.language != "th") return null;
+            ThaiVoices.Warm("player spoke"); // the caller's answer is next: open the voice connection now
             if (DateTime.UtcNow < cooldownUntil) return null;
             if (!HasKey) return null;
             string key = Key;

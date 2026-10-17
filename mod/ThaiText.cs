@@ -85,6 +85,17 @@ namespace SWYF.ThaiMod
         }
 
         // CallerResponseFillers.Get: short "thinking" sounds while the AI answers.
+        // ThaiVoices keeps these as ready-made audio per caller, so they play at once.
+        public static readonly string[] FillerLines = { "อืม ได้...", "อืม เข้าใจแล้ว...", "เอ่อ โอเค..." };
+
+        public static bool IsFiller(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            string t = text.Trim();
+            foreach (var f in FillerLines) if (string.Equals(f, t, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
         public static string Filler(string languageCode, int variant)
         {
             try
@@ -93,12 +104,7 @@ namespace SWYF.ThaiMod
                 if (lang == null || lang.Code != "th") return null;
             }
             catch { return null; }
-            switch (variant)
-            {
-                case 0: return "อืม ได้...";
-                case 1: return "อืม เข้าใจแล้ว...";
-                default: return "เอ่อ โอเค...";
-            }
+            return FillerLines[variant >= 0 && variant < FillerLines.Length ? variant : FillerLines.Length - 1];
         }
 
         private static string Unescape(string s)

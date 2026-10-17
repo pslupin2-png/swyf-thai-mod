@@ -68,10 +68,28 @@ namespace SWYF.ThaiMod
                 }
                 string spoken = speech.ToString().Trim();
                 if (spoken.Length == 0 && words.Count == 0) continue;
+                string say = ThaiSpeechText.Clean(spoken); // what the voice reads; subtitles keep the original words
+                int until = 0;
+
+                // "อืม ได้..." while the AI thinks: a ready-made clip plays at once
+                if (ThaiText.IsFiller(say))
+                {
+                    float[] clip = ThaiVoices.Clip(say, voicePath);
+                    if (clip == null)
+                    {
+                        try { clip = Speak(say, voicePath, ct); }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception e) { ThaiModEntry.Warn("Thai TTS failed (filler): " + e.Message); }
+                        if (clip != null && clip.Length > 0) ThaiVoices.RememberClip(say, voicePath, clip);
+                    }
+                    EmitPcm(clip != null && clip.Length > 0 ? clip : Silent(spoken), words, ref until, true, emit, ct);
+                    continue;
+                }
+                ThaiVoices.PrepareFillers(voicePath);
 
                 // OpenAI: stream audio into the game as it arrives (first sound after ~1 s instead of the whole line).
                 bool streamTried = false;
-                if (spoken.Length > 0 && ThaiVoices.CanStream)
+                if (say.Length > 0 && ThaiVoices.CanStream)
                 {
                     streamTried = true;
                     var box = new int[1];
@@ -80,7 +98,7 @@ namespace SWYF.ThaiMod
                     try
                     {
                         var gender = ThaiVoices.GenderFor(voicePath);
-                        streamed = ThaiVoices.StreamOpenAI(spoken, voicePath, gender, block =>
+                        streamed = ThaiVoices.StreamOpenAI(say, voicePath, gender, block =>
                         {
                             if (held != null)
                             {
@@ -101,26 +119,51 @@ namespace SWYF.ThaiMod
                     if (streamed || held != null) continue;
                 }
 
+                // Windows voice: on a long line, speak the first phrase while the rest is being made.
+                bool local = streamTried || !ThaiVoices.CloudUsable;
+                if (local && ThaiSpeechText.SplitFirst(say, 12, 40, 50, out var first, out var rest))
+                {
+                    float[] a = null;
+                    try { a = SpeakWindows(first, voicePath, ct); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception e) { ThaiModEntry.Warn("Thai TTS failed, using silent timing: " + e.Message); }
+                    if (a != null && a.Length > 0)
+                    {
+                        EmitPcm(a, words, ref until, false, emit, ct);
+                        float[] b = null;
+                        try { b = SpeakWindows(rest, voicePath, ct); }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception e) { ThaiModEntry.Warn("Thai TTS failed, using silent timing: " + e.Message); }
+                        EmitPcm(b != null && b.Length > 0 ? b : Silent(rest), words, ref until, true, emit, ct);
+                        continue;
+                    }
+                }
+
                 float[] pcm = null;
-                try { if (spoken.Length > 0) pcm = Speak(spoken, voicePath, ct, streamTried); }
+                try { if (say.Length > 0) pcm = Speak(say, voicePath, ct, streamTried); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e) { ThaiModEntry.Warn("Thai TTS failed, using silent timing: " + e.Message); }
-                if (pcm == null || pcm.Length == 0)
-                    pcm = new float[Math.Max(OutRate / 2, (int)(spoken.Length * 0.075 * OutRate))]; // silent fallback keeps subtitles moving
-
-                int until = 0;
-                const int chunk = OutRate / 5; // 200 ms
-                for (int off = 0; off < pcm.Length; off += chunk)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    int n = Math.Min(chunk, pcm.Length - off);
-                    var part = new float[n];
-                    Array.Copy(pcm, off, part, 0, n);
-                    bool last = off + n >= pcm.Length;
-                    emit(new PocketTtsAudioResponse(part, n, SpeechTranscriptTiming.TakeTranscriptWords(words, ref until, n, last)));
-                }
+                if (pcm == null || pcm.Length == 0) pcm = Silent(spoken); // silent fallback keeps subtitles moving
+                EmitPcm(pcm, words, ref until, true, emit, ct);
             }
             return 0;
+        }
+
+        private static float[] Silent(string text) => new float[Math.Max(OutRate / 2, (int)(text.Length * 0.075 * OutRate))];
+
+        // Hands audio to the game in 200 ms pieces, moving the subtitle words along with it.
+        private static void EmitPcm(float[] pcm, Queue<string> words, ref int until, bool lastPart, Action<PocketTtsAudioResponse> emit, CancellationToken ct)
+        {
+            const int chunk = OutRate / 5; // 200 ms
+            for (int off = 0; off < pcm.Length; off += chunk)
+            {
+                ct.ThrowIfCancellationRequested();
+                int n = Math.Min(chunk, pcm.Length - off);
+                var part = new float[n];
+                Array.Copy(pcm, off, part, 0, n);
+                bool last = lastPart && off + n >= pcm.Length;
+                emit(new PocketTtsAudioResponse(part, n, SpeechTranscriptTiming.TakeTranscriptWords(words, ref until, n, last)));
+            }
         }
 
         private static void MarkMossGenerating()
@@ -190,26 +233,33 @@ namespace SWYF.ThaiMod
 
         private static float[] Speak(string text, string voicePath, CancellationToken ct, bool skipCloud = false)
         {
-            var gender = ThaiVoices.GenderFor(voicePath);
             if (!skipCloud && ThaiVoices.CloudUsable)
             {
                 try
                 {
-                    var neural = ThaiVoices.SynthesizeCloud(text, voicePath, gender);
+                    var neural = ThaiVoices.SynthesizeCloud(text, voicePath, ThaiVoices.GenderFor(voicePath));
                     if (neural != null && neural.Length > 0) return neural;
                 }
                 catch (Exception e) { ThaiModEntry.Warn("cloud voice error: " + e.Message); }
             }
-            // Windows voice (one male Thai voice): vary pitch per character, raise it for women.
+            return SpeakWindows(text, voicePath, ct);
+        }
+
+        // Windows voice (one male Thai voice): vary pitch per character, raise it for women. Kept close to the
+        // natural pitch and speed: big shifts make Thai tones hard to hear.
+        private static float[] SpeakWindows(string text, string voicePath, CancellationToken ct)
+        {
+            var gender = ThaiVoices.GenderFor(voicePath);
             int h = ThaiVoices.Hash(voicePath);
-            double pitch, rate = 1.08 + (h / 41 % 13) / 100.0;
+            double pitch, rate = 1.00 + (h / 41 % 7) / 100.0;                            // 1.00 .. 1.06
             switch (gender)
             {
-                case ThaiVoices.Gender.Female: pitch = 1.30 + (h % 16) / 100.0; break;   // 1.30 .. 1.45
-                case ThaiVoices.Gender.Male: pitch = 0.80 + (h % 21) / 100.0; break;     // 0.80 .. 1.00
-                case ThaiVoices.Gender.Boss: pitch = 0.75; rate = 1.15; break;
-                default: pitch = 0.85 + (h % 41) / 100.0; break;
+                case ThaiVoices.Gender.Female: pitch = 1.25 + (h % 11) / 100.0; break;   // 1.25 .. 1.35
+                case ThaiVoices.Gender.Male: pitch = 0.88 + (h % 13) / 100.0; break;     // 0.88 .. 1.00
+                case ThaiVoices.Gender.Boss: pitch = 0.80; rate = 1.08; break;
+                default: pitch = 0.92 + (h % 21) / 100.0; break;                          // 0.92 .. 1.12
             }
+            var started = DateTime.UtcNow;
             byte[] wav;
             lock (Gate)
             {
@@ -230,6 +280,7 @@ namespace SWYF.ThaiMod
                 wav = File.ReadAllBytes(outPath);
                 try { File.Delete(outPath); } catch { }
             }
+            ThaiModEntry.Log("windows voice " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars)");
             return DecodeWavTo24k(wav);
         }
 
