@@ -1,0 +1,14 @@
+bin/
+obj/
+refs/
+lib/
+*.user
+.vs/
+
+# API keys and per-machine files: never commit
+groq_key.txt
+voice_keys.txt
+*key*.txt
+launcher_log.txt
+update_check.txt
+patch_state.txt

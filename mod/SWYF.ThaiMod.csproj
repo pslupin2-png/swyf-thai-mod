@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Builds SWYF.ThaiMod.dll against the game's own assemblies.
+    The game's DLLs are NOT in this repo. Copy them from
+    "<game>\Scam With Your Friends_Data\Managed" into ../refs (or pass -p:GameManaged=<that folder>).
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>SWYF.ThaiMod</AssemblyName>
+    <RootNamespace>SWYF.ThaiMod</RootNamespace>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <NoStdLib>true</NoStdLib>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <DebugType>none</DebugType>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GameManaged Condition="'$(GameManaged)' == ''">$(MSBuildThisFileDirectory)../refs</GameManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib"><HintPath>$(GameManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System"><HintPath>$(GameManaged)/System.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Core"><HintPath>$(GameManaged)/System.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.SharedInternalsModule"><HintPath>$(GameManaged)/UnityEngine.SharedInternalsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule"><HintPath>$(GameManaged)/UnityEngine.UnityWebRequestModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Kolkata.Speech"><HintPath>$(GameManaged)/Kolkata.Speech.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Kolkata.MossTtsNano"><HintPath>$(GameManaged)/Kolkata.MossTtsNano.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ScriptsAssDef"><HintPath>$(GameManaged)/ScriptsAssDef.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="com.whisper.unity"><HintPath>$(GameManaged)/com.whisper.unity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.Localization"><HintPath>$(GameManaged)/Unity.Localization.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.ResourceManager"><HintPath>$(GameManaged)/Unity.ResourceManager.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.Addressables"><HintPath>$(GameManaged)/Unity.Addressables.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="PocketTTS"><HintPath>$(GameManaged)/PocketTTS.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MetaVoiceChat.Core"><HintPath>$(GameManaged)/MetaVoiceChat.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameManaged)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

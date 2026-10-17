@@ -1,0 +1,223 @@
+# SWYF Thai mod: hard-coded game text. english<TAB>thai (escapes: \\ \t \n \r). English must match the game text exactly.
+1 Minute Left	เหลือ 1 นาที
+Wrap it up. Performance review starts in one minute.	รีบปิดงาน! อีกหนึ่งนาทีจะเริ่มประเมินผลงาน
+Day {0}	วันที่ {0}
+Boss Battle	สู้กับบอส
+Head upstairs to face the boss.	ขึ้นไปชั้นบนเพื่อเผชิญหน้ากับบอส
+Only employee left to blame	เหลือพนักงานให้โทษอยู่คนเดียว
+A player	ผู้เล่นคนหนึ่ง
+Asset Acquisition Complete	ยึดทรัพย์สำเร็จ
+Asset Relocation Successful	ย้ายทรัพย์สินสำเร็จ
+Client Satisfied	ลูกค้าพอใจ
+Compliance Achieved	ลูกค้ายอมทำตาม
+Customer Assisted	ช่วยเหลือลูกค้าแล้ว
+Customer Educated	ให้ความรู้ลูกค้าแล้ว
+Donation Secured	ได้เงินบริจาคมาแล้ว
+Financial Opportunity Completed	โอกาสทางการเงินสำเร็จ
+Funds Successfully Reallocated	โยกย้ายเงินสำเร็จ
+Payment Facilitated	ช่วยจ่ายเงินเรียบร้อย
+Pension Collected	เก็บเงินบำนาญแล้ว
+Premium Support Delivered	บริการระดับพรีเมียมเรียบร้อย
+Revenue Acquired	รายได้เข้ากระเป๋า
+Savings Liberated	ปลดปล่อยเงินออมแล้ว
+Service Delivered	ให้บริการเรียบร้อย
+Transaction Complete	ทำรายการสำเร็จ
+Trust Exploited	หลอกใช้ความเชื่อใจสำเร็จ
+Wallet Emptied	กระเป๋าตังค์เกลี้ยง
+Wealth Redistributed	กระจายความมั่งคั่งใหม่
+Scam Artist	ศิลปินสายสแกม
+Professional Menace	ตัวป่วนมืออาชีพ
+Bank Account Evaporated	บัญชีธนาคารระเหยหาย
+Certified Scumbag	คนเลวมีใบรับรอง
+Conscience Disabled	ปิดระบบมโนธรรมแล้ว
+Emotional Manipulation Successful	ปั่นหัวสำเร็จ
+Ethics Avoided	หลบจริยธรรมสำเร็จ
+Evil Maxxed	ความชั่วเต็มหลอด
+Family Vacation Canceled	ทริปครอบครัวโดนยกเลิก
+Financial Consultation Complete	ให้คำปรึกษาการเงินเสร็จสิ้น
+Financial Devastation Achieved	ทำลายการเงินสำเร็จ
+Idiot Exploited	หลอกคนซื่อสำเร็จ
+Inheritance Expedited	เร่งรับมรดกให้แล้ว
+Life Savings Acquired	ได้เงินเก็บทั้งชีวิตมา
+Lifetime Savings Borrowed	ยืมเงินเก็บทั้งชีวิตมา
+Loyalty Reward Claimed	รับรางวัลลูกค้าภักดีแล้ว
+Problem "Solved"	แก้ปัญหา "เรียบร้อย"
+Retirement Plan Neutralized	แผนเกษียณถูกกำจัด
+Victim Secured	ได้เหยื่อแล้ว
+Villain Bonus	โบนัสตัวร้าย
+Unknown player	ผู้เล่นไม่ทราบชื่อ
+Autosaved · Continue from	บันทึกอัตโนมัติ · เล่นต่อจาก
+That day is not available in this save.	ไม่มีวันนี้ในเซฟนี้
+Scamazon order	สั่งของ Scamazon
+Team expense	ค่าใช้จ่ายทีม
+Rainbit round	รอบ Rainbit
+Your latest save continues automatically. Each morning is a checkpoint.	เกมจะเล่นต่อจากเซฟล่าสุดให้เอง ทุกเช้าคือจุดเซฟ
+Only the host can clear saved progress.	เฉพาะโฮสต์เท่านั้นที่ล้างเซฟได้
+Only the host can load a save.	เฉพาะโฮสต์เท่านั้นที่โหลดเซฟได้
+Could not clear every save file. Some saves may have been deleted, but your current game and player progress have not been reset. Check folder permissions and try again.	ล้างไฟล์เซฟไม่ครบ บางเซฟอาจถูกลบไปแล้ว แต่เกมปัจจุบันและความคืบหน้าของผู้เล่นยังไม่ถูกรีเซ็ต ตรวจสอบสิทธิ์โฟลเดอร์แล้วลองใหม่
+Could not read your save. Check folder permissions and try again.	อ่านเซฟไม่ได้ ตรวจสอบสิทธิ์โฟลเดอร์แล้วลองใหม่
+Could not save progress. Check disk space and folder permissions.	บันทึกความคืบหน้าไม่ได้ ตรวจสอบพื้นที่ดิสก์และสิทธิ์โฟลเดอร์
+Day {0} loaded. Click Continue or open the start door to begin.	โหลดวันที่ {0} แล้ว กดเล่นต่อ หรือเปิดประตูเริ่มเพื่อเริ่มเล่น
+Save cleared. Your apps, upgrades, money and saved progress have been reset. Start a new game to begin again.	ล้างเซฟแล้ว แอป อัปเกรด เงิน และความคืบหน้าถูกรีเซ็ตทั้งหมด เริ่มเกมใหม่เพื่อเล่นอีกครั้ง
+Your save could not be read. Use Clear save to erase your progress and start over.	อ่านเซฟของคุณไม่ได้ ใช้ปุ่มล้างเซฟเพื่อลบความคืบหน้าแล้วเริ่มใหม่
+The caller has not provided this information yet.	ลูกค้ายังไม่ได้ให้ข้อมูลนี้
+This field is not configured for the scam.	ช่องนี้ไม่ได้ตั้งค่าไว้สำหรับสแกมนี้
+This scam is not configured.	สแกมนี้ยังไม่ได้ตั้งค่า
+Search the web	ค้นหาเว็บ
+Run Ledger	บัญชีรายการรอบนี้
+Your personal and team transactions for this run.	รายการเงินของคุณและทีมในรอบนี้
+Read-only run record · resets when the run ends	บันทึกรอบนี้ (ดูอย่างเดียว) · รีเซ็ตเมื่อจบรอบ
+({0} / {1} verified)	(ยืนยันแล้ว {0} / {1})
+Scam complete — ${0:N0} earned{1}.	สแกมสำเร็จ — ได้ ${0:N0}{1}
+Enter the information for ${0:N0}{1}.	กรอกข้อมูลเพื่อรับ ${0:N0}{1}
+Enter a value before verifying.	กรอกข้อมูลก่อนกดยืนยัน
+Letters aren't allowed for this field.	ช่องนี้ห้ามใส่ตัวอักษร
+This field has no validation format.	ช่องนี้ไม่มีรูปแบบการตรวจสอบ
+Answer an incoming call in Phone. Open a scam app to see its objectives.	รับสายเรียกเข้าในแอปโทรศัพท์ เปิดแอปสแกมเพื่อดูภารกิจ
+Caller responses appear here.	คำตอบของลูกค้าจะแสดงที่นี่
+Check delayed. Keep talking; missed exchanges will be checked again.	การตรวจล่าช้า คุยต่อได้เลย ส่วนที่ตรวจไม่ทันจะถูกตรวจใหม่
+Finish the remaining objectives.	ทำภารกิจที่เหลือให้เสร็จ
+Your audio is not being sent yet.	เสียงของคุณยังไม่ถูกส่ง
+No personal transactions yet.	ยังไม่มีรายการของคุณ
+No team transactions yet.	ยังไม่มีรายการของทีม
+No active conversation.	ไม่มีการสนทนาอยู่
+Typing works while muted. Hold push-to-talk to speak when that mode is enabled.	ปิดไมค์อยู่ก็ยังพิมพ์ได้ ถ้าใช้โหมดกดเพื่อพูด ให้กดปุ่มค้างไว้แล้วพูด
+The shared conversation remains available here.	บทสนทนาที่แชร์ยังดูได้ที่นี่
+Listening resumes automatically.	จะกลับมาฟังต่อเองอัตโนมัติ
+Unknown Caller	ไม่ทราบชื่อผู้โทร
+Nitro claimed. Your computer immediately regrets it.	รับ Nitro แล้ว คอมของคุณเสียใจทันที
+The Nitro gift could not be claimed.	รับของขวัญ Nitro ไม่สำเร็จ
+Coworker bounty	ค่าหัวเพื่อนร่วมงาน
+Fart on	ตดใส่
+Pee on	ฉี่ใส่
+Beat up	อัด
+Bounty complete! +$50	ล่าค่าหัวสำเร็จ! +$50
+Choose another player before sending.	เลือกผู้เล่นคนอื่นก่อนส่ง
+Slow down before sending another message.	ใจเย็นๆ ก่อนส่งข้อความถัดไป
+That player is no longer online.	ผู้เล่นคนนั้นออฟไลน์แล้ว
+Type a message before sending.	พิมพ์ข้อความก่อนส่ง
+Your player profile is not ready yet.	โปรไฟล์ผู้เล่นของคุณยังไม่พร้อม
+Please wait a moment before dialing again.	รอสักครู่ก่อนโทรอีกครั้ง
+{0}h {1}m	{0} ชม. {1} นาที
+Max rank reached	ถึงแรงก์สูงสุดแล้ว
+Unlock next rank at level {0}	ปลดล็อกแรงก์ถัดไปที่เลเวล {0}
+Unlock at level {0}	ปลดล็อกที่เลเวล {0}
+Current Level {0}	เลเวลปัจจุบัน {0}
+Back To Work	กลับไปทำงาน
+Department Rankings	อันดับประจำแผนก
+Generated on the host from today's calls.	สร้างบนเครื่องโฮสต์จากสายวันนี้
+Pack Your Bags	เก็บของกลับบ้านได้
+Calls and browser history. Nobody escapes the audit.	สายโทรและประวัติเบราว์เซอร์ ไม่มีใครรอดการตรวจสอบ
+Faces, names, and the boss's brutally scientific ranking.	หน้าตา ชื่อ และการจัดอันดับสุดโหดเชิงวิทยาศาสตร์ของหัวหน้า
+No quota	ไม่มีโควตา
+Solo shift. Multiple exhibits. No witnesses.	กะเดี่ยว หลักฐานเพียบ ไม่มีพยาน
+The shift's strongest moments. Nobody escapes the playback.	ช่วงเด็ดที่สุดของกะนี้ ไม่มีใครรอดการเปิดย้อนดู
+What The Boss Heard	สิ่งที่หัวหน้าได้ยิน
+Nobody gave me a single usable call quote today. Either you all stayed quiet, or the microphones unionized.	วันนี้ไม่มีใครให้ประโยคเด็ดจากสายมาสักประโยค ไม่พวกแกเงียบกันหมด ก็ไมโครโฟนรวมหัวกันประท้วง
+Nothing worth replaying today. Try making your bullshit memorable tomorrow.	วันนี้ไม่มีอะไรน่าเปิดดูซ้ำเลย พรุ่งนี้ช่วยโม้ให้มันน่าจำหน่อย
+No call moments made the training wall today.	วันนี้ไม่มีช่วงไหนจากสายได้ขึ้นกำแพงฝึกงาน
+Watch this recording of	มาดูคลิปของ
+The boss has reached a decision...	หัวหน้าตัดสินใจแล้ว...
+Then I checked the browser history.	แล้วฉันก็ไปเช็คประวัติเบราว์เซอร์
+Team total	ยอดรวมทีม
+Top earner	ทำเงินสูงสุด
+{0} players tracked. {1} earned today.	ติดตามผู้เล่น {0} คน วันนี้ทำเงินได้ {1}
+Browser Audit	ตรวจประวัติเบราว์เซอร์
+Next Day	วันถัดไป
+No call quote survived, so I checked the browser audit instead.	ไม่มีประโยคจากสายไหนรอด เลยไปเช็คประวัติเบราว์เซอร์แทน
+The calls stayed off the wall, so I checked the browser audit.	สายโทรไม่ได้ขึ้นกำแพง เลยไปเช็คประวัติเบราว์เซอร์
+Tomorrow's Goals	เป้าหมายพรุ่งนี้
+Senior Operations Overlord	จอมบงการฝ่ายปฏิบัติการอาวุโส
+No call transcript. The browser audit still has receipts.	ไม่มีบันทึกสาย แต่ประวัติเบราว์เซอร์ยังมีหลักฐาน
+No players tracked	ไม่มีผู้เล่นให้ติดตาม
+No transcript survived. The coaching still did.	บันทึกสายไม่รอด แต่คำสอนยังอยู่
+The calls stayed off the training wall.	สายโทรไม่ได้ขึ้นกำแพงฝึกงาน
+The calls stayed off the wall. The browser still has receipts.	สายโทรไม่ได้ขึ้นกำแพง แต่เบราว์เซอร์ยังมีหลักฐาน
+No player	ไม่มีผู้เล่น
+AI Review	สรุปผลโดย AI
+Host AI Review Error	AI ของโฮสต์สรุปผลผิดพลาด
+Host AI Review Failed	AI ของโฮสต์สรุปผลไม่สำเร็จ
+Day {0} review did not receive valid AI JSON.	สรุปผลวันที่ {0} ได้ข้อมูลจาก AI ไม่ถูกต้อง
+Review did not receive valid AI JSON.	สรุปผลได้ข้อมูลจาก AI ไม่ถูกต้อง
+Host is generating the review...	โฮสต์กำลังสร้างสรุปผล...
+Host is preparing the review...	โฮสต์กำลังเตรียมสรุปผล...
+No review slides found.	ไม่พบสไลด์สรุปผล
+Waiting for host review deck...	รอสไลด์สรุปผลจากโฮสต์...
+Slide {0} of {1}	สไลด์ {0} จาก {1}
+Slide {0}	สไลด์ {0}
+This contact could not be reached.	ติดต่อเบอร์นี้ไม่ได้
+Only the host can edit the day's caller queue.	เฉพาะโฮสต์เท่านั้นที่แก้คิวลูกค้าของวันนี้ได้
+That caller is unavailable for calls.	ลูกค้าคนนี้รับสายไม่ได้ตอนนี้
+No outgoing line is available. Try again shortly.	ไม่มีสายว่างสำหรับโทรออก ลองใหม่อีกสักครู่
+That caller is no longer available for this change.	ลูกค้าคนนี้ไม่พร้อมสำหรับการเปลี่ยนแปลงนี้แล้ว
+The lobby changed. Try adding the caller again.	ล็อบบี้เปลี่ยนไปแล้ว ลองเพิ่มลูกค้าอีกครั้ง
+No callers are available. Open Caller Manager and add working callers.	ไม่มีลูกค้าให้โทร เปิด Caller Manager แล้วเพิ่มลูกค้าที่ใช้งานได้
+No working callers in your queue! Open Caller Manager and add callers or enable random community callers.	ไม่มีลูกค้าที่ใช้งานได้ในคิว! เปิด Caller Manager แล้วเพิ่มลูกค้า หรือเปิดลูกค้าสุ่มจากชุมชน
+Some queued callers are unavailable. Open Caller Manager and replace them.	ลูกค้าบางคนในคิวใช้งานไม่ได้ เปิด Caller Manager แล้วเปลี่ยนคนใหม่
+Use SpoofBook from your own desk.	ใช้ SpoofBook จากโต๊ะของตัวเอง
+A community caller is unavailable and was skipped.	ลูกค้าจากชุมชนคนหนึ่งใช้งานไม่ได้ เลยข้ามไป
+Checking queued character availability…	กำลังเช็คว่าตัวละครในคิวพร้อมไหม…
+The call changed while loading customer info. Try again.	สายเปลี่ยนระหว่างโหลดข้อมูลลูกค้า ลองใหม่อีกครั้ง
+Total Payout: ${0}	ยอดจ่ายรวม: ${0}
+Taken down	ถูกถอดออก
+Adding caller to daily queue…	กำลังเพิ่มลูกค้าเข้าคิววันนี้…
+Caller list refreshed.	รีเฟรชรายชื่อลูกค้าแล้ว
+Caller updated.	อัปเดตลูกค้าแล้ว
+Confirm deletion below, then choose DELETE CALLER.	ยืนยันการลบด้านล่าง แล้วกด DELETE CALLER
+Listing deleted. Local drafts and other listings are preserved.	ลบรายการแล้ว ร่างในเครื่องและรายการอื่นยังอยู่
+Publishing is restricted. A moderator must lift the takedown before the owner can republish.	ถูกจำกัดการเผยแพร่ ต้องให้ผู้ดูแลยกเลิกการถอดก่อน เจ้าของถึงจะเผยแพร่ใหม่ได้
+This revision remains pinned when added to the queue.	เวอร์ชันนี้จะถูกล็อกไว้เมื่อเพิ่มเข้าคิว
+Vote removed.	ยกเลิกโหวตแล้ว
+Vote saved.	บันทึกโหวตแล้ว
+Workshop updates between calls. Unlisted callers are accessible to anyone with the link.	Workshop จะอัปเดตระหว่างสาย ลูกค้าที่ไม่เปิดสาธารณะ ใครมีลิงก์ก็เข้าถึงได้
+Who is this caller?	ลูกค้าคนนี้คือใคร?
+Shape how they introduce themselves and respond during a call.	กำหนดว่าพวกเขาแนะนำตัวและตอบโต้ยังไงระหว่างสาย
+01   Appearance	01   รูปลักษณ์
+02   Personality	02   นิสัย
+03   Voice	03   เสียง
+Enter 1–10 opening lines, one per line, in the Personality tab.	ใส่ประโยคเปิด 1–10 ประโยค บรรทัดละประโยค ในแท็บนิสัย
+Enter a display name in the Description tab.	ใส่ชื่อที่แสดงในแท็บคำอธิบาย
+Enter a personality description in the Description tab.	ใส่คำอธิบายนิสัยในแท็บคำอธิบาย
+Record a new voice sample in the selected localization language.	อัดตัวอย่างเสียงใหม่ในภาษาที่เลือก
+Record a voice sample for the new caller.	อัดตัวอย่างเสียงให้ลูกค้าคนใหม่
+Submit your recording in the Voice tab before saving the caller.	ส่งเสียงที่อัดในแท็บเสียงก่อนบันทึกลูกค้า
+This caller needs a voice recording.	ลูกค้าคนนี้ต้องมีเสียงที่อัดไว้
+The microphone could not start. Check the input device in Settings.	เปิดไมโครโฟนไม่ได้ ตรวจสอบอุปกรณ์รับเสียงในการตั้งค่า
+Current voice:	เสียงปัจจุบัน:
+No voice recorded yet.	ยังไม่ได้อัดเสียง
+A retired teacher who is warm, curious, and a little suspicious. They ask lots of questions and get impatient with vague answers.	ครูเกษียณที่อบอุ่น ช่างสงสัย และขี้ระแวงนิดๆ ชอบถามเยอะ และหงุดหงิดเมื่อได้คำตอบคลุมเครือ
+Hide layer	ซ่อนเลเยอร์
+Show layer	แสดงเลเยอร์
+Double-click an image in File Explorer.	ดับเบิลคลิกรูปใน File Explorer
+Rendering image...	กำลังแสดงรูป...
+Image rendering failed. Opening its text fallback...	แสดงรูปไม่สำเร็จ กำลังเปิดแบบข้อความแทน...
+This image could not be opened.	เปิดรูปนี้ไม่ได้
+Double-click an audio file in File Explorer.	ดับเบิลคลิกไฟล์เสียงใน File Explorer
+Double-click a video file in File Explorer.	ดับเบิลคลิกไฟล์วิดีโอใน File Explorer
+Brew / take coffee	ชง / หยิบกาแฟ
+Drink coffee	ดื่มกาแฟ
+Empty coffee container	แก้วกาแฟเปล่า
+Hold To Equip	กดค้างเพื่อสวมใส่
+Hold To Add To Wardrobe	กดค้างเพื่อเก็บเข้าตู้เสื้อผ้า
+All Cop Skins Unlocked	ปลดล็อกสกินตำรวจครบแล้ว
+All Emotes Unlocked	ปลดล็อกท่าทางครบแล้ว
+All Item Skins Unlocked	ปลดล็อกสกินไอเท็มครบแล้ว
+Not enough money!	เงินไม่พอ!
+Skin already unlocked!	ปลดล็อกสกินนี้แล้ว!
+You're Not The Host!	คุณไม่ใช่โฮสต์!
+Friendly fire is disabled.	ปิดการยิงพวกเดียวกันอยู่
+Grab Player	จับผู้เล่น
+Right click to grab player	คลิกขวาเพื่อจับผู้เล่น
+was arrested by	ถูกจับโดย
+and is jailed.	และติดคุก
+has wishlisted the game! You unlocked a cop skin!	กดวิชลิสต์เกมแล้ว! ปลดล็อกสกินตำรวจ!
+You Have No Item!	คุณไม่มีไอเท็ม!
+No Smuggler Has Touched This Item!	ยังไม่มีผู้ลักลอบคนไหนแตะไอเท็มนี้!
++${0} Hijacking Win	+${0} ชนะจี้เครื่องบิน
++${0} Hijacking Win Bonus	+${0} โบนัสชนะจี้เครื่องบิน
+Hold Left Click to ready	กดคลิกซ้ายค้างเพื่อเตรียม
+Ready Parachute	เตรียมร่มชูชีพ
+<color=white><b>Parachute deployed!</b></color>	<color=white><b>กางร่มแล้ว!</b></color>
+You cannot plant a bomb here!	วางระเบิดตรงนี้ไม่ได้!
+Engine Destroyed	เครื่องยนต์พัง
+in a row!	ติดต่อกัน!

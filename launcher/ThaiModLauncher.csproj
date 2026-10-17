@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ThaiModLauncher.exe: installs/repairs the mod, holds the key window, checks GitHub for new releases.
+    Needs Mono.Cecil.dll + Mono.Cecil.Rocks.dll in ../lib (or pass -p:CecilDir=<folder>);
+    the release zip ships the same two DLLs.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>ThaiModLauncher</AssemblyName>
+    <RootNamespace>SWYF.ThaiMod.Launcher</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Version>0.7.2</Version>
+    <Product>SWYF Thai Mod Launcher</Product>
+    <Company>SWYF Thai Mod (unofficial)</Company>
+    <Description>Installs and repairs the unofficial Thai mod for Scam With Your Friends, then starts the game.</Description>
+    <CecilDir Condition="'$(CecilDir)' == ''">$(MSBuildThisFileDirectory)../lib</CecilDir>
+  </PropertyGroup>
+  <!-- building on Linux/macOS with Mono's reference assemblies -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT' And Exists('/usr/lib/mono/4.8-api')">
+    <FrameworkPathOverride>/usr/lib/mono/4.8-api</FrameworkPathOverride>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Mono.Cecil"><HintPath>$(CecilDir)/Mono.Cecil.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil.Rocks"><HintPath>$(CecilDir)/Mono.Cecil.Rocks.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
