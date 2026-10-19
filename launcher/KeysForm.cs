@@ -17,7 +17,7 @@ namespace SWYF.ThaiMod.Launcher
         private readonly string modDir, launchOption, appId;
         private readonly TextBox groqBox = new TextBox(), voiceBox = new TextBox(), optionBox = new TextBox();
         private readonly RadioButton rbWindows = new RadioButton(), rbOpenAI = new RadioButton(), rbGemini = new RadioButton();
-        private readonly CheckBox showKeys = new CheckBox();
+        private readonly CheckBox showKeys = new CheckBox(), backupBox = new CheckBox();
         private readonly Label voiceHint = new Label(), status = new Label();
         private readonly LinkLabel voiceLink = new LinkLabel(), updateLink = new LinkLabel();
         private readonly Button saveBtn = new Button(), playBtn = new Button(), copyBtn = new Button();
@@ -91,6 +91,9 @@ namespace SWYF.ThaiMod.Launcher
             g2.Controls.Add(Row(voiceBox, voiceLink));
             voiceHint.AutoSize = true; voiceHint.MaximumSize = new Size(540, 0); voiceHint.ForeColor = Muted;
             g2.Controls.Add(voiceHint);
+            backupBox.Text = "ถ้าโควตาฟรีของ Gemini วันนี้หมด ให้ใช้เสียง OpenAI ต่อ (ใช้คีย์ OpenAI ที่ใส่ไว้ · OpenAI คิดเงินตามการใช้)";
+            backupBox.AutoSize = true; backupBox.MaximumSize = new Size(540, 0); backupBox.Margin = new Padding(0, 4, 0, 0);
+            g2.Controls.Add(backupBox);
             root.Controls.Add(g2);
 
             showKeys.Text = "แสดงคีย์"; showKeys.AutoSize = true; showKeys.Margin = new Padding(2, 0, 0, 8);
@@ -162,6 +165,7 @@ namespace SWYF.ThaiMod.Launcher
                         if (off) line = line.TrimStart('#').Trim();
                         int eq = line.IndexOf('='); if (eq < 0) continue;
                         string k = line.Substring(0, eq).Trim().ToLowerInvariant(), v = line.Substring(eq + 1).Trim();
+                        if (k == "voice_backup") { if (!off) backupBox.Checked = v.Equals("openai", StringComparison.OrdinalIgnoreCase); continue; }
                         if (v.Length < 20 && k != "gemini_model") continue;
                         if (k == "openai" && (openaiKey == "" || !off)) openaiKey = v;
                         if (k == "gemini" && (geminiKey == "" || !off)) geminiKey = v;
@@ -199,6 +203,7 @@ namespace SWYF.ThaiMod.Launcher
             if (current == "gemini") geminiKey = voiceBox.Text.Trim();
             current = rbOpenAI.Checked ? "openai" : rbGemini.Checked ? "gemini" : "windows";
             voiceBox.Enabled = current != "windows";
+            backupBox.Visible = current == "gemini";
             voiceLink.Visible = current != "windows";
             if (current == "openai")
             {
@@ -208,7 +213,8 @@ namespace SWYF.ThaiMod.Launcher
             else if (current == "gemini")
             {
                 voiceBox.Text = geminiKey; voiceLink.Text = "ขอคีย์ Gemini"; voiceLink.Tag = "https://aistudio.google.com/apikey";
-                voiceHint.Text = "คีย์จาก Google AI Studio · ใช้ฟรีได้ระดับหนึ่ง ถ้าใช้เยอะต้องเปิด billing";
+                voiceHint.Text = "คีย์จาก Google AI Studio · ฟรีแต่จำกัดจำนวนต่อวัน (ม็อดสลับรุ่นให้เองเมื่อรุ่นหนึ่งหมด รีเซ็ตราวบ่าย 2 โมง) · " +
+                                 "ถ้าต้องการให้ใช้ OpenAI ต่อเมื่อหมด: เลือก OpenAI วางคีย์ แล้วกลับมาเลือก Gemini และติ๊กช่องด้านล่าง";
             }
             else
             {
@@ -232,7 +238,9 @@ namespace SWYF.ThaiMod.Launcher
                 sb.Append("# ตั้งค่าง่ายกว่า: ดับเบิลคลิก SWYF_ThaiMod\\ThaiModLauncher.exe ในโฟลเดอร์เกม\n");
                 sb.Append("# บรรทัดที่ขึ้นต้นด้วย # คือคีย์ที่เก็บไว้แต่ไม่ได้ใช้\n");
                 sb.Append(current == "gemini" ? "gemini=" + geminiKey : (geminiKey.Length > 0 ? "#gemini=" + geminiKey : "gemini=")).Append('\n');
-                sb.Append(current == "openai" ? "openai=" + openaiKey : (openaiKey.Length > 0 ? "#openai=" + openaiKey : "openai=")).Append('\n');
+                bool backup = current == "gemini" && backupBox.Checked && openaiKey.Length > 0;
+                sb.Append(current == "openai" || backup ? "openai=" + openaiKey : (openaiKey.Length > 0 ? "#openai=" + openaiKey : "openai=")).Append('\n');
+                sb.Append(backup ? "voice_backup=openai" : "# voice_backup=openai").Append('\n');
                 sb.Append(geminiModel.Length > 0 ? "gemini_model=" + geminiModel : "# gemini_model=gemini-3.8-flash-tts").Append('\n');
                 File.WriteAllText(VoicePath, sb.ToString(), new UTF8Encoding(false));
             }
@@ -241,6 +249,8 @@ namespace SWYF.ThaiMod.Launcher
             SetStatus("บันทึกแล้ว · กำลังตรวจคีย์…", Muted);
             saveBtn.Enabled = playBtn.Enabled = false;
             string provider = current, vkey = provider == "openai" ? openaiKey : provider == "gemini" ? geminiKey : "";
+            bool wantBackup = provider == "gemini" && backupBox.Checked;
+            string backupKey = openaiKey;
             new Thread(() =>
             {
                 var parts = new List<string>(); bool anyBad = false;
@@ -248,6 +258,8 @@ namespace SWYF.ThaiMod.Launcher
                 else parts.Add("Groq: ไม่ได้ใส่ (ใช้ Whisper ในเครื่อง)");
                 if (provider == "openai" && vkey.Length > 0) parts.Add("OpenAI " + Check("https://api.openai.com/v1/models", "Bearer " + vkey, ref anyBad));
                 else if (provider == "gemini" && vkey.Length > 0) parts.Add("Gemini " + Check("https://generativelanguage.googleapis.com/v1beta/models?key=" + Uri.EscapeDataString(vkey), null, ref anyBad));
+                if (wantBackup && backupKey.Length > 0) parts.Add("OpenAI สำรอง " + Check("https://api.openai.com/v1/models", "Bearer " + backupKey, ref anyBad));
+                else if (wantBackup) parts.Add("ยังไม่มีคีย์ OpenAI สำรอง (เลือก OpenAI แล้ววางคีย์ก่อน)");
                 else if (provider != "windows") { parts.Add("ยังไม่ได้ใส่คีย์เสียง (ใช้เสียง Windows)"); }
                 else parts.Add("เสียง: Windows");
                 string msg = "บันทึกแล้ว · " + string.Join(" · ", parts) + (play && !anyBad ? " · กำลังเปิดเกม…" : "") + "\nเกมเปิดอยู่ก็ไม่ต้องปิด ม็อดอ่านคีย์ใหม่เอง";

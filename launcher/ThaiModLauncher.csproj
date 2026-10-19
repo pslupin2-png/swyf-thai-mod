@@ -13,7 +13,7 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <Version>0.8.3</Version>
+    <Version>0.8.4</Version>
     <Product>SWYF Thai Mod Launcher</Product>
     <Company>SWYF Thai Mod (unofficial)</Company>
     <Description>Installs and repairs the unofficial Thai mod for Scam With Your Friends, then starts the game.</Description>

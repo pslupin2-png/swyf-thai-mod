@@ -29,34 +29,164 @@ namespace SWYF.ThaiMod
         private static string cfgPath;
         private static DateTime cfgStamp = DateTime.MinValue;
         private static string geminiKey, openaiKey;
-        private static string geminiModel = "";
-        private static string workingGeminiModel;
+        private static bool openaiBackup;         // voice_backup=openai: OpenAI takes over when Gemini's free quota is used up
+        private static string geminiModel = "";   // gemini_model= : tried first
         private static DateTime cooldownUntil = DateTime.MinValue;
         private static readonly object CfgGate = new object();
-        // First = default. gemini-3.8-flash-tts (Sept 2026) speaks Thai and streams audio as it is made; the older
-        // preview models only return the whole line at once (5-7 s for a long line).
-        private static readonly string[] GeminiModels = { "gemini-3.8-flash-tts", "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview" };
-        private const string GeminiLegacyFallback = "gemini-2.5-flash-preview-tts";
-        private static volatile bool geminiStreamBroken; // the streaming model refused our request: use the old way until keys change
-        private static DateTime geminiStreamPauseUntil = DateTime.MinValue; // 429 on the new model: older model for a minute
+
+        // Gemini TTS models, best first. Each model has its own free daily quota (about 30 lines a day on a free key,
+        // reset at midnight Pacific time), so when one runs out the next takes over before the Windows voice does.
+        //   3.8 Flash: Thai, streams audio as it is made (~1 s to first sound); 3.1 Flash preview streams too
+        //   2.5 Flash / Pro preview: whole line at once (4-7 s)
+        private static readonly string[] GeminiLadder =
+            { "gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts" };
+
+        private sealed class GemModel
+        {
+            public string Id;
+            public bool Stream;
+            public volatile bool Broken;                       // refused our request (400/403/404): skip until keys change
+            public DateTime BlockedUntil = DateTime.MinValue;  // 429: briefly, or until the daily quota resets
+            public int Strikes;                                // 429s in a row without a success
+        }
+        private static GemModel[] gemModels = BuildLadder("");
+
+        private static GemModel[] BuildLadder(string preferred)
+        {
+            var ids = new List<string>();
+            if (preferred.Length > 0) ids.Add(preferred);
+            foreach (var m in GeminiLadder) if (!ids.Contains(m)) ids.Add(m);
+            var res = new GemModel[ids.Count];
+            for (int i = 0; i < ids.Count; i++)
+                res[i] = new GemModel { Id = ids[i], Stream = !IsLegacyGemini(ids[i]) || ids[i].IndexOf("3.1-flash-tts", StringComparison.Ordinal) >= 0 };
+            return res;
+        }
 
         // Older TTS models want the style written into the prompt; 3.8+ takes it in speech_metadata.
         private static bool IsLegacyGemini(string model) =>
             model.IndexOf("2.5-", StringComparison.Ordinal) >= 0 || model.IndexOf("3.1-flash-tts", StringComparison.Ordinal) >= 0;
 
-        private static string GeminiStreamModel
+        private static GemModel CurrentGemini
         {
             get
             {
-                if (geminiStreamBroken || DateTime.UtcNow < geminiStreamPauseUntil) return null;
-                string m = geminiModel.Length > 0 ? geminiModel : GeminiModels[0];
-                return IsLegacyGemini(m) ? null : m;
+                if (geminiKey == null) return null;
+                var now = DateTime.UtcNow;
+                foreach (var m in gemModels) if (!m.Broken && now >= m.BlockedUntil) return m;
+                return null;
             }
         }
 
-        private static string GeminiUnaryModel =>
-            workingGeminiModel ?? (geminiModel.Length > 0 ? geminiModel
-                                   : geminiStreamBroken || DateTime.UtcNow < geminiStreamPauseUntil ? GeminiLegacyFallback : GeminiModels[0]);
+        private static GemModel FindGemini(string id)
+        {
+            foreach (var m in gemModels) if (m.Id == id) return m;
+            return null;
+        }
+
+        // who speaks the next line
+        private static bool UseGemini => CurrentGemini != null;
+        private static bool UseOpenAi => openaiKey != null && (geminiKey == null || (openaiBackup && CurrentGemini == null));
+
+        // Gemini's daily quotas reset at midnight Pacific time (14:00 or 15:00 in Thailand).
+        private static DateTime NextPacificMidnightUtc()
+        {
+            var now = DateTime.UtcNow;
+            int offset = PacificDst(now) ? -7 : -8;
+            return now.AddHours(offset).Date.AddDays(1).AddMinutes(2).AddHours(-offset);
+        }
+
+        private static bool PacificDst(DateTime utc)
+        {
+            var mar = new DateTime(utc.Year, 3, 8); while (mar.DayOfWeek != DayOfWeek.Sunday) mar = mar.AddDays(1);   // 2nd Sunday of March
+            var nov = new DateTime(utc.Year, 11, 1); while (nov.DayOfWeek != DayOfWeek.Sunday) nov = nov.AddDays(1);  // 1st Sunday of November
+            return utc >= mar.AddHours(10) && utc < nov.AddHours(9);
+        }
+
+        private static string ThaiClock(DateTime utc) => utc.AddHours(7).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+        // A Gemini model said no (400/403/404/429). Moves on to the next model, OpenAI backup or the Windows voice.
+        private static void GeminiRefused(string id, long code, string body)
+        {
+            var m = FindGemini(id);
+            if (m == null) return;
+            body = body ?? "";
+            string what;
+            if (code == 429)
+            {
+                bool perDay = body.IndexOf("PerDay", StringComparison.Ordinal) >= 0 || body.IndexOf("per_day", StringComparison.Ordinal) >= 0;
+                int retry = RetrySeconds(body);
+                lock (CfgGate)
+                {
+                    m.Strikes++;
+                    if (perDay || m.Strikes >= 3) m.BlockedUntil = NextPacificMidnightUtc();
+                    else m.BlockedUntil = DateTime.UtcNow.AddSeconds(Math.Max(20, Math.Min(retry > 0 ? retry : 60, 120)));
+                }
+                what = DateTime.UtcNow.AddMinutes(10) < m.BlockedUntil
+                    ? "used up its free quota for today (resets " + ThaiClock(m.BlockedUntil) + " Thai time" + (perDay ? "" : ", guessed") + ")"
+                    : "is rate-limited for " + (m.BlockedUntil - DateTime.UtcNow).TotalSeconds.ToString("0") + " s";
+                SaveQuota();
+            }
+            else { m.Broken = true; what = "refused the request (" + code + ")"; }
+            var cur = CurrentGemini;
+            ThaiModEntry.Warn("gemini " + id + " " + what + QuotaId(body) + "; next lines: " +
+                              (cur != null ? cur.Id + (cur.Stream ? " (streaming)" : " (whole line)") : UseOpenAi ? "OpenAI backup" : "Windows voice"));
+        }
+
+        private static int RetrySeconds(string body)
+        {
+            int k = body.IndexOf("\"retryDelay\"", StringComparison.Ordinal);
+            if (k < 0) return 0;
+            int q = body.IndexOf('"', body.IndexOf(':', k) + 1);
+            int e = q + 1;
+            while (e < body.Length && char.IsDigit(body[e])) e++;
+            return q > 0 && int.TryParse(body.Substring(q + 1, e - q - 1), out int s) ? s : 0;
+        }
+
+        private static string QuotaId(string body)
+        {
+            int k = body.IndexOf("\"quotaId\"", StringComparison.Ordinal);
+            if (k < 0) return "";
+            int q = body.IndexOf('"', body.IndexOf(':', k) + 1), e = q < 0 ? -1 : body.IndexOf('"', q + 1);
+            return e > q ? " [" + body.Substring(q + 1, e - q - 1) + "]" : "";
+        }
+
+        // Daily blocks survive a game restart (otherwise every new session first spends a request finding out).
+        private static string QuotaPath => cfgPath == null ? null : Path.Combine(Path.GetDirectoryName(cfgPath), "voice_quota.txt");
+
+        private static void SaveQuota()
+        {
+            try
+            {
+                var sb = new StringBuilder("# SWYF Thai mod: Gemini models whose free quota ran out (safe to delete)\nkey=" + Hash(geminiKey ?? "") + "\n");
+                foreach (var m in gemModels)
+                    if (m.BlockedUntil > DateTime.UtcNow.AddMinutes(10))
+                        sb.Append(m.Id).Append('=').Append(m.BlockedUntil.ToString("o", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+                if (QuotaPath != null) File.WriteAllText(QuotaPath, sb.ToString(), new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
+        private static void LoadQuota()
+        {
+            try
+            {
+                if (QuotaPath == null || !File.Exists(QuotaPath) || geminiKey == null) return;
+                bool sameKey = false;
+                foreach (var raw in File.ReadAllText(QuotaPath).Split('\n'))
+                {
+                    var line = raw.Trim();
+                    int eq = line.IndexOf('=');
+                    if (line.StartsWith("#") || eq < 0) continue;
+                    string k = line.Substring(0, eq), v = line.Substring(eq + 1);
+                    if (k == "key") { sameKey = v == Hash(geminiKey).ToString(); continue; }
+                    var m = FindGemini(k);
+                    if (sameKey && m != null && DateTime.TryParse(v, System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.RoundtripKind, out var until) && until.ToUniversalTime() > DateTime.UtcNow)
+                        m.BlockedUntil = until.ToUniversalTime();
+                }
+            }
+            catch { }
+        }
 
         public static void Setup()
         {
@@ -85,7 +215,7 @@ namespace SWYF.ThaiMod
                     if (cfgPath == null || !File.Exists(cfgPath)) { geminiKey = openaiKey = null; return; }
                     var stamp = File.GetLastWriteTimeUtc(cfgPath);
                     if (stamp == cfgStamp) return;
-                    cfgStamp = stamp; geminiKey = openaiKey = null; geminiModel = ""; workingGeminiModel = null;
+                    cfgStamp = stamp; geminiKey = openaiKey = null; geminiModel = ""; openaiBackup = false;
                     foreach (var raw in File.ReadAllText(cfgPath).Split('\n'))
                     {
                         var line = raw.Trim();
@@ -96,11 +226,12 @@ namespace SWYF.ThaiMod
                         if (k == "gemini" && v.Length >= 20) geminiKey = v;
                         if (k == "openai" && v.Length >= 20) openaiKey = v;
                         if (k == "gemini_model" && v.Length > 0) geminiModel = v;
+                        if (k == "voice_backup") openaiBackup = v.Equals("openai", StringComparison.OrdinalIgnoreCase);
                     }
+                    gemModels = BuildLadder(geminiModel); // new keys: every model gets another try
+                    LoadQuota();
                     cooldownUntil = DateTime.MinValue;
                     warmBroken = false;
-                    geminiStreamBroken = false;
-                    geminiStreamPauseUntil = DateTime.MinValue;
                     ClearClips(); // keys changed: ready-made clips may be from another provider
                 }
                 catch { }
@@ -112,16 +243,19 @@ namespace SWYF.ThaiMod
             get
             {
                 LoadCfg();
-                if (geminiKey != null) return GeminiStreamModel != null ? "gemini (" + GeminiStreamModel + ", streaming)" : "gemini (" + GeminiUnaryModel + ")";
+                string backup = geminiKey != null && openaiBackup && openaiKey != null ? ", OpenAI as backup" : "";
+                var gm = CurrentGemini;
+                if (gm != null) return "gemini (" + gm.Id + (gm.Stream ? ", streaming" : ", whole lines") + backup + ")";
+                if (geminiKey != null) return "gemini (every model used up its free quota today" + backup + ")";
                 return openaiKey != null ? "openai (streaming)" : "off (no key in voice_keys.txt)";
             }
         }
 
-        private static string ClipProvider { get { LoadCfg(); return geminiKey != null ? "gemini" : openaiKey != null ? "openai" : "windows"; } }
+        private static string ClipProvider { get { LoadCfg(); return UseGemini ? "gemini" : UseOpenAi ? "openai" : "windows"; } }
 
         public static bool CloudUsable
         {
-            get { LoadCfg(); return (geminiKey != null || openaiKey != null) && DateTime.UtcNow >= cooldownUntil; }
+            get { LoadCfg(); return DateTime.UtcNow >= cooldownUntil && (UseGemini || UseOpenAi); }
         }
 
         // ---------- characters: gender + personality ----------
@@ -284,8 +418,9 @@ namespace SWYF.ThaiMod
 
         private sealed class Job
         {
-            public string Url, Body, AuthHeader, AuthValue, Kind;
+            public string Url, Body, AuthHeader, AuthValue, Kind, Model;
             public bool Critical = true;
+            public volatile bool Switch; // gemini model refused / out of quota: try the next one
             public TaskCompletionSource<string> Tcs = new TaskCompletionSource<string>(); // gemini: JSON text
             public TaskCompletionSource<byte[]> Raw = new TaskCompletionSource<byte[]>(); // openai: raw pcm
         }
@@ -317,38 +452,38 @@ namespace SWYF.ThaiMod
         {
             LoadCfg();
             NoteActivity();
-            var job = new Job();
-            if (geminiKey != null)
+            for (int round = 0; round < 6; round++)
             {
-                string model = GeminiUnaryModel;
-                job.Kind = "gemini";
-                job.Url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
-                job.AuthHeader = "x-goog-api-key"; job.AuthValue = geminiKey;
-                job.Body = GeminiBody(model, text, voicePath, gender);
-                job.Critical = critical;
-                lock (pending) pending.Enqueue(job);
-                if (!job.Tcs.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
-                string json = job.Tcs.Task.Result;
-                if (json == null) return null;
-                if (workingGeminiModel == null) workingGeminiModel = model;
-                int rate = 24000;
-                int r = json.IndexOf("rate=", StringComparison.Ordinal);
-                if (r > 0) { int e = r + 5; while (e < json.Length && char.IsDigit(json[e])) e++; int.TryParse(json.Substring(r + 5, e - r - 5), out rate); }
-                byte[] pcm = GeminiSse.StripWav(Convert.FromBase64String(GeminiSse.Unescape64(JsonStringValue(json, "data"))), ref rate); // 3.8 returns WAV
-                return Resample(Pcm16(pcm), rate, 24000);
-            }
-            else
-            {
+                var job = new Job { Critical = critical };
+                var gm = CurrentGemini;
+                if (gm != null)
+                {
+                    job.Kind = "gemini"; job.Model = gm.Id;
+                    job.Url = "https://generativelanguage.googleapis.com/v1beta/models/" + gm.Id + ":generateContent";
+                    job.AuthHeader = "x-goog-api-key"; job.AuthValue = geminiKey;
+                    job.Body = GeminiBody(gm.Id, text, voicePath, gender);
+                    lock (pending) pending.Enqueue(job);
+                    if (!job.Tcs.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
+                    string json = job.Tcs.Task.Result;
+                    if (json == null) { if (job.Switch) continue; return null; }
+                    gm.Strikes = 0;
+                    int rate = 24000;
+                    int r = json.IndexOf("rate=", StringComparison.Ordinal);
+                    if (r > 0) { int e = r + 5; while (e < json.Length && char.IsDigit(json[e])) e++; int.TryParse(json.Substring(r + 5, e - r - 5), out rate); }
+                    byte[] pcm = GeminiSse.StripWav(Convert.FromBase64String(GeminiSse.Unescape64(JsonStringValue(json, "data"))), ref rate); // 3.8 returns WAV
+                    return Resample(Pcm16(pcm), rate, 24000);
+                }
+                if (!UseOpenAi) return null;
                 job.Kind = "openai";
                 job.Url = "https://api.openai.com/v1/audio/speech";
                 job.AuthHeader = "Authorization"; job.AuthValue = "Bearer " + openaiKey;
                 job.Body = OpenAiBody(text, voicePath, gender);
-                job.Critical = critical;
                 lock (pending) pending.Enqueue(job);
                 if (!job.Raw.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
-                byte[] pcm = job.Raw.Task.Result;
-                return pcm == null ? null : Pcm16(pcm);
+                byte[] raw = job.Raw.Task.Result;
+                return raw == null ? null : Pcm16(raw);
             }
+            return null;
         }
 
         // ---------- ready-made clips (fillers) ----------
@@ -383,7 +518,7 @@ namespace SWYF.ThaiMod
         // those keep each clip the first time it is used.
         public static void PrepareFillers(string voicePath)
         {
-            if (string.IsNullOrEmpty(voicePath) || !CanStream || geminiKey != null) return;
+            if (string.IsNullOrEmpty(voicePath) || !CanStream || UseGemini) return; // Gemini: few free requests a day
             string who = ClipProvider + "|" + VoiceKey(voicePath);
             lock (ClipGate) { if (!prepared.Add(who)) return; }
             var gender = GenderFor(voicePath);
@@ -428,8 +563,8 @@ namespace SWYF.ThaiMod
         {
             LoadCfg();
             string url, header = null, value = null;
-            if (geminiKey != null) { url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"; header = "x-goog-api-key"; value = geminiKey; }
-            else if (openaiKey != null) { url = "https://api.openai.com/v1/models"; header = "Authorization"; value = "Bearer " + openaiKey; }
+            if (UseGemini) { url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"; header = "x-goog-api-key"; value = geminiKey; }
+            else if (UseOpenAi) { url = "https://api.openai.com/v1/models"; header = "Authorization"; value = "Bearer " + openaiKey; }
             else yield break;
             var started = DateTime.UtcNow;
             var req = UnityWebRequest.Get(url);
@@ -453,13 +588,14 @@ namespace SWYF.ThaiMod
             {
                 LoadCfg();
                 if (DateTime.UtcNow < cooldownUntil) return false;
-                return geminiKey != null ? GeminiStreamModel != null : openaiKey != null;
+                var gm = CurrentGemini;
+                return gm != null ? gm.Stream : UseOpenAi;
             }
         }
 
         private sealed class StreamJob
         {
-            public string Url, Body, AuthHeader, AuthValue, Kind;
+            public string Url, Body, AuthHeader, AuthValue, Kind, Model;
             public BlockingCollection<byte[]> Chunks = new BlockingCollection<byte[]>();
             public volatile bool Failed, Abort;
             public volatile int Rate = 24000;
@@ -523,9 +659,24 @@ namespace SWYF.ThaiMod
             long last = Interlocked.Read(ref lastActivityTicks);
             string idle = last == 0 ? "first line" : "idle " + TimeSpan.FromTicks(DateTime.UtcNow.Ticks - last).TotalSeconds.ToString("0") + " s before";
             NoteActivity();
-            bool gem = geminiKey != null;
-            string model = gem ? GeminiStreamModel : null;
-            if (gem && model == null) return false;
+            // A Gemini model that is out of quota answers 429 at once; the line moves to the next model (or OpenAI).
+            for (int round = 0; round < 6; round++)
+            {
+                if (!CanStream) return false; // the next option speaks whole lines: the caller takes it from here
+                var r = StreamOnce(text, voicePath, gender, onAudio, ct, idle);
+                if (r != StreamResult.Switched) return r == StreamResult.Audio;
+            }
+            return false;
+        }
+
+        private enum StreamResult { Audio, Failed, Switched }
+
+        private static StreamResult StreamOnce(string text, string voicePath, Gender gender, Action<float[]> onAudio, CancellationToken ct, string idle)
+        {
+            var gm = CurrentGemini;
+            bool gem = gm != null;
+            if (!gem && !UseOpenAi) return StreamResult.Failed;
+            string model = gem ? gm.Id : null;
             string kind = gem ? "gemini" : "openai";
             string url = gem ? "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":streamGenerateContent?alt=sse"
                              : "https://api.openai.com/v1/audio/speech";
@@ -534,7 +685,7 @@ namespace SWYF.ThaiMod
             double hedgeAfter = gem ? GeminiHedgeAfterSeconds : HedgeAfterSeconds;
             StreamJob Start()
             {
-                var j = new StreamJob { Url = url, Body = body, AuthHeader = header, AuthValue = value, Kind = kind };
+                var j = new StreamJob { Url = url, Body = body, AuthHeader = header, AuthValue = value, Kind = kind, Model = model };
                 lock (streamPending) streamPending.Enqueue(j);
                 return j;
             }
@@ -549,7 +700,7 @@ namespace SWYF.ThaiMod
                     ct.ThrowIfCancellationRequested();
                     double el = (DateTime.UtcNow - started).TotalSeconds;
                     if (el > GiveUpSeconds) break;
-                    if (gem && GeminiStreamModel == null) break; // refused or rate-limited: this line goes to the older model
+                    if (gem && (gm.Broken || DateTime.UtcNow < gm.BlockedUntil)) break; // refused / out of quota: next model
                     bool aDead = a.Chunks.IsCompleted;
                     if (b == null && (el > hedgeAfter || aDead))
                     {
@@ -567,14 +718,15 @@ namespace SWYF.ThaiMod
             {
                 a.Abort = true; if (b != null) b.Abort = true;
                 NoteActivity();
-                if (gem && GeminiStreamModel == null) return false; // not a voice failure: this line goes to the older model
+                if (gem && (gm.Broken || DateTime.UtcNow < gm.BlockedUntil)) return StreamResult.Switched; // not a voice failure
                 Fail("no audio from " + kind + " in " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.0") + " s");
-                return false;
+                return StreamResult.Failed;
             }
             var loser = win == a ? b : a;
             if (loser != null) loser.Abort = true;
-            ThaiModEntry.Log(kind + " first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars, " +
-                             idle + ")" + (win == b ? " (second request)" : ""));
+            if (gem) gm.Strikes = 0;
+            ThaiModEntry.Log(kind + (gem && gm != gemModels[0] ? " " + model : "") + " first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") +
+                             " s (" + text.Length + " chars, " + idle + ")" + (win == b ? " (second request)" : ""));
 
             int rate = win.Rate;
             int carry = -1; var block = new List<float>(2400);
@@ -600,7 +752,7 @@ namespace SWYF.ThaiMod
             if (block.Count > 0) onAudio(Resample(block.ToArray(), rate, 24000));
             NoteActivity();
             consecutiveFails = 0;
-            return true;
+            return StreamResult.Audio;
         }
 
         private static bool TakeQuick(StreamJob j, out byte[] chunk, CancellationToken ct)
@@ -631,19 +783,10 @@ namespace SWYF.ThaiMod
                 job.Failed = true;
                 string err = sink.ErrorText.ToString().Replace('\n', ' ');
                 if (err.Length > 300) err = err.Substring(0, 300);
-                ThaiModEntry.Warn(job.Kind + " request failed: " + req.responseCode + " " + req.error + " " + err);
                 long code = req.responseCode;
-                if (job.Kind == "gemini" && (code == 400 || code == 403 || code == 404) && !geminiStreamBroken)
-                {
-                    geminiStreamBroken = true;
-                    workingGeminiModel = null;
-                    ThaiModEntry.Warn("gemini streaming refused; using " + GeminiUnaryModel + " (whole line at once) until voice_keys.txt changes");
-                }
-                if (job.Kind == "gemini" && code == 429)
-                {
-                    geminiStreamPauseUntil = DateTime.UtcNow.AddSeconds(60);
-                    ThaiModEntry.Warn("gemini streaming rate-limited; " + GeminiLegacyFallback + " (whole line at once) for 60 s");
-                }
+                if (job.Kind == "gemini" && (code == 400 || code == 403 || code == 404 || code == 429))
+                    GeminiRefused(job.Model, code, sink.ErrorText.ToString()); // logs; the line moves on to the next model
+                else ThaiModEntry.Warn(job.Kind + " request failed: " + code + " " + req.error + " " + err);
             }
             else if (!job.Abort && sink.SseError != null) ThaiModEntry.Warn("gemini stream error: " + sink.SseError);
             job.Chunks.CompleteAdding();
@@ -760,27 +903,21 @@ namespace SWYF.ThaiMod
             bool ok = req.result == UnityWebRequest.Result.Success && req.downloadHandler.data != null && req.downloadHandler.data.Length > 0;
             if (ok)
             {
-                ThaiModEntry.Log(job.Kind + " voice " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s");
+                ThaiModEntry.Log(job.Kind + (job.Model != null ? " " + job.Model : "") + " voice " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s");
                 if (job.Kind == "gemini") job.Tcs.TrySetResult(req.downloadHandler.text); else job.Raw.TrySetResult(req.downloadHandler.data);
             }
             else
             {
-                string body = req.downloadHandler != null ? req.downloadHandler.text : "";
-                if (body != null && body.Length > 300) body = body.Substring(0, 300);
-                // unknown Gemini model id: try the next one on the next line
-                if (job.Kind == "gemini" && req.responseCode == 404 && workingGeminiModel == null)
+                string full = req.downloadHandler != null ? req.downloadHandler.text ?? "" : "";
+                string body = (full.Length > 300 ? full.Substring(0, 300) : full).Replace('\n', ' ');
+                long code = req.responseCode;
+                if (job.Kind == "gemini" && (code == 400 || code == 403 || code == 404 || code == 429))
                 {
-                    int i = Array.IndexOf(GeminiModels, job.Url.Substring(job.Url.LastIndexOf('/') + 1).Replace(":generateContent", ""));
-                    if (i >= 0 && i + 1 < GeminiModels.Length)
-                    {
-                        geminiModel = GeminiModels[i + 1];
-                        ThaiModEntry.Warn("gemini model not found, trying " + geminiModel + " next line");
-                        job.Tcs.TrySetResult(null); job.Raw.TrySetResult(null); req.Dispose();
-                        yield break;
-                    }
+                    GeminiRefused(job.Model, code, full); // not a voice failure: the next model gets the line
+                    job.Switch = true;
                 }
-                if (job.Critical) Fail(job.Kind + " " + req.responseCode + " " + req.error + " " + body);
-                else ThaiModEntry.Warn("background " + job.Kind + " voice failed: " + req.responseCode + " " + req.error);
+                else if (job.Critical) Fail(job.Kind + " " + code + " " + req.error + " " + body);
+                else ThaiModEntry.Warn("background " + job.Kind + " voice failed: " + code + " " + req.error);
                 job.Tcs.TrySetResult(null); job.Raw.TrySetResult(null);
             }
             req.Dispose();

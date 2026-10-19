@@ -12,7 +12,7 @@ namespace SWYF.ThaiMod
     // Called by Unity via an entry in RuntimeInitializeOnLoads.json (loadTypes 1 = BeforeSceneLoad).
     public static class ThaiModEntry
     {
-        public const string Version = "0.8.3";
+        public const string Version = "0.8.4";
         private static bool done;
         internal static string ModDir;      // StreamingAssets/SWYF.ThaiMod
         internal static string StreamingAssets;
