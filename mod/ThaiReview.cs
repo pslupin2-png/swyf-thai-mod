@@ -25,10 +25,19 @@ namespace SWYF.ThaiMod
             return false;
         }
 
+        // Appended to the boss-review request. The perspective rules matter in Thai: with กู/มึง and no explicit
+        // subjects, the model otherwise reacts to a quote like "ขู่พ่อ" as if the player had threatened the boss's father.
         private const string LanguageEntry =
             "{\"language\":{\"name\":\"Thai\",\"code\":\"th\",\"instruction\":\"Write EVERY human-readable string value of your JSON answer " +
             "(deck and slide titles, narrations, bullets, notes, quote paraphrases, verdicts, outro) in natural spoken Thai, " +
-            "in Mr Curry's loud, rude boss voice. Crude Thai insults and swearing are fine (e.g. ไอ้พวกขี้เกียจ, ห่าเอ๊ย, บ้าเอ๊ย). " +
+            "in Mr Curry's loud, rude boss voice, calling the employees มึง/พวกมึง and himself กู. Match the swearing level the rest of this request asks for: " +
+            "if it asks for family-friendly language, use no swear words; otherwise crude Thai insults are fine (e.g. ไอ้พวกขี้เกียจ, ห่าเอ๊ย, บ้าเอ๊ย). " +
+            "WHO SAID WHAT: every quote and call note is something an EMPLOYEE said TO A CALLER (a customer on the phone) during a scam call. " +
+            "None of it was said to Mr Curry or about him. React as the boss judging how the employee handled that customer: refer to the caller " +
+            "in the third person (ลูกค้า, ไอ้ลูกค้า, or the caller's name) and never treat the quote as an insult, threat or claim about the boss, " +
+            "his family, his body or his powers. Example: quote ขู่พ่อ means the employee threatened the CUSTOMER's father, so say " +
+            "มึงไปขู่พ่อลูกค้าเหรอ, never มึงขู่พ่อกู. Likewise a caller's dark powers, problems or jobs belong to the caller, not to the boss. " +
+            "Quote paraphrases must be clear on their own: say who did what to whom (e.g. ขู่ว่าจะทำร้ายพ่อของลูกค้า), not two-word fragments. " +
             "Keep JSON keys, moment ids, player names, money amounts and tier letters (S/A/B/C/D/F) unchanged, and say each player's tier as 'เทียร์ S' etc. " +
             "Player quotes are already Thai; paraphrase them in Thai.\"}}";
 

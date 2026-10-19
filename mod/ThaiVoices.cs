@@ -232,6 +232,7 @@ namespace SWYF.ThaiMod
         private sealed class Job
         {
             public string Url, Body, AuthHeader, AuthValue, Kind;
+            public bool Critical = true;
             public TaskCompletionSource<string> Tcs = new TaskCompletionSource<string>(); // gemini: JSON text
             public TaskCompletionSource<byte[]> Raw = new TaskCompletionSource<byte[]>(); // openai: raw pcm
         }
@@ -255,7 +256,11 @@ namespace SWYF.ThaiMod
         }
 
         // Worker thread: blocks until the main thread fetched the audio. Returns 24 kHz mono floats or null.
-        public static float[] SynthesizeCloud(string text, string voicePath, Gender gender)
+        public static float[] SynthesizeCloud(string text, string voicePath, Gender gender) => SynthesizeCloud(text, voicePath, gender, true);
+
+        // critical = a line the player is waiting for. Background work (filler clips) passes false: its failures
+        // must not count toward the 60 s "use the Windows voice" pause.
+        public static float[] SynthesizeCloud(string text, string voicePath, Gender gender, bool critical)
         {
             LoadCfg();
             NoteActivity();
@@ -271,8 +276,9 @@ namespace SWYF.ThaiMod
                 job.AuthHeader = "x-goog-api-key"; job.AuthValue = geminiKey;
                 job.Body = "{\"contents\":[{\"parts\":[{\"text\":" + Json(GeminiPrompt(text, voicePath, gender)) + "}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"]," +
                            "\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"" + voice + "\"}}}}}";
+                job.Critical = critical;
                 lock (pending) pending.Enqueue(job);
-                if (!job.Tcs.Task.Wait(20000)) { Fail("timeout"); return null; }
+                if (!job.Tcs.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
                 string json = job.Tcs.Task.Result;
                 if (json == null) return null;
                 if (workingGeminiModel == null) workingGeminiModel = model;
@@ -288,8 +294,9 @@ namespace SWYF.ThaiMod
                 job.Url = "https://api.openai.com/v1/audio/speech";
                 job.AuthHeader = "Authorization"; job.AuthValue = "Bearer " + openaiKey;
                 job.Body = OpenAiBody(text, voicePath, gender);
+                job.Critical = critical;
                 lock (pending) pending.Enqueue(job);
-                if (!job.Raw.Task.Wait(20000)) { Fail("timeout"); return null; }
+                if (!job.Raw.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
                 byte[] pcm = job.Raw.Task.Result;
                 return pcm == null ? null : Pcm16(pcm);
             }
@@ -335,26 +342,16 @@ namespace SWYF.ThaiMod
             {
                 try
                 {
-                    Thread.Sleep(1200); // let the line that is playing now have the connection first
+                    Thread.Sleep(1500); // let the line that is playing now have the connection first
                     var started = DateTime.UtcNow;
-                    var workers = new List<Thread>();
                     int made = 0;
-                    foreach (var f in ThaiText.FillerLines)
+                    foreach (var f in ThaiText.FillerLines) // one at a time: lighter on the connection than three at once
                     {
                         if (Clip(f, voicePath) != null) continue;
-                        string line = f;
-                        var t = new Thread(() =>
-                        {
-                            try
-                            {
-                                var pcm = SynthesizeCloud(line, voicePath, gender);
-                                if (pcm != null && pcm.Length > 0) { RememberClip(line, voicePath, pcm); Interlocked.Increment(ref made); }
-                            }
-                            catch { }
-                        }) { IsBackground = true };
-                        workers.Add(t); t.Start();
+                        if (!CloudUsable) break;
+                        var pcm = SynthesizeCloud(f, voicePath, gender, false);
+                        if (pcm != null && pcm.Length > 0) { RememberClip(f, voicePath, pcm); made++; }
                     }
-                    foreach (var t in workers) t.Join(25000);
                     ThaiModEntry.Log("filler clips ready for " + VoiceKey(voicePath) + ": " + made + " in " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.0") + " s");
                 }
                 catch (Exception e) { ThaiModEntry.Warn("filler clips: " + e.Message); }
@@ -425,57 +422,91 @@ namespace SWYF.ThaiMod
         }
 
         // Worker thread. Calls onAudio with ~100 ms float blocks as they arrive. Returns false if nothing was received.
+        // OpenAI sometimes sits on a request for 5+ seconds before the first byte. Instead of waiting it out, a
+        // second identical request goes out after 2.2 s; whichever starts sending audio first is used and the other
+        // is cancelled. Same voice either way, so the caller never changes voice mid-call.
+        private const double HedgeAfterSeconds = 2.2, GiveUpSeconds = 10.0;
+
         public static bool StreamOpenAI(string text, string voicePath, Gender gender, Action<float[]> onAudio, CancellationToken ct)
         {
             LoadCfg();
             long last = Interlocked.Read(ref lastActivityTicks);
             string idle = last == 0 ? "first line" : "idle " + TimeSpan.FromTicks(DateTime.UtcNow.Ticks - last).TotalSeconds.ToString("0") + " s before";
             NoteActivity();
-            var job = new StreamJob
+            string url = "https://api.openai.com/v1/audio/speech", auth = "Bearer " + openaiKey, body = OpenAiBody(text, voicePath, gender);
+            StreamJob Start()
             {
-                Url = "https://api.openai.com/v1/audio/speech",
-                Auth = "Bearer " + openaiKey,
-                Body = OpenAiBody(text, voicePath, gender)
-            };
+                var j = new StreamJob { Url = url, Auth = auth, Body = body };
+                lock (streamPending) streamPending.Enqueue(j);
+                return j;
+            }
+
             var started = DateTime.UtcNow;
-            bool any = false; int carry = -1; var block = new List<float>(2400);
-            int blockSize = 2400; // first block 100 ms so sound starts sooner, then 200 ms
-            for (int attempt = 1; attempt <= 2 && !any; attempt++)
+            StreamJob a = Start(), b = null, win = null;
+            byte[] chunk = null;
+            try
             {
-                if (attempt > 1)
+                while (win == null)
                 {
-                    job = new StreamJob { Url = job.Url, Auth = job.Auth, Body = job.Body };
-                    ThaiModEntry.Warn("openai voice slow to start; retrying");
-                }
-                lock (streamPending) streamPending.Enqueue(job);
-                while (true)
-                {
-                    byte[] chunk;
-                    bool got;
-                    try { got = job.Chunks.TryTake(out chunk, any ? 8000 : 5000, ct); }
-                    catch (OperationCanceledException) { job.Abort = true; throw; }
-                    catch (InvalidOperationException) { break; } // request finished
-                    if (!got)
+                    ct.ThrowIfCancellationRequested();
+                    double el = (DateTime.UtcNow - started).TotalSeconds;
+                    if (el > GiveUpSeconds) break;
+                    bool aDead = a.Chunks.IsCompleted;
+                    if (b == null && (el > HedgeAfterSeconds || aDead))
                     {
-                        if (job.Chunks.IsCompleted) break;
-                        job.Abort = true; // stalled: drop this request
-                        break;
+                        b = Start();
+                        ThaiModEntry.Log("openai voice " + (aDead ? "request failed" : "slow to start") + "; sent a second request");
                     }
-                    if (!any)
-                        ThaiModEntry.Log("openai first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars, " +
-                                         idle + ")" + (attempt > 1 ? " (retry)" : ""));
-                    any = true;
-                    int i = 0;
-                    if (carry >= 0 && chunk.Length > 0) { block.Add((short)(carry | chunk[0] << 8) / 32768f); i = 1; carry = -1; }
-                    for (; i + 1 < chunk.Length; i += 2) block.Add((short)(chunk[i] | chunk[i + 1] << 8) / 32768f);
-                    if (i < chunk.Length) carry = chunk[i];
-                    if (block.Count >= blockSize) { onAudio(block.ToArray()); block.Clear(); blockSize = 4800; }
+                    if (TakeQuick(a, out chunk, ct)) { win = a; break; }
+                    if (b != null && TakeQuick(b, out chunk, ct)) { win = b; break; }
+                    if (b != null && aDead && b.Chunks.IsCompleted) break; // both ended without audio
+                }
+            }
+            catch (OperationCanceledException) { a.Abort = true; if (b != null) b.Abort = true; throw; }
+
+            if (win == null)
+            {
+                a.Abort = true; if (b != null) b.Abort = true;
+                NoteActivity();
+                Fail("no audio from 2 requests in " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.0") + " s");
+                return false;
+            }
+            var loser = win == a ? b : a;
+            if (loser != null) loser.Abort = true;
+            ThaiModEntry.Log("openai first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars, " +
+                             idle + ")" + (win == b ? " (second request)" : ""));
+
+            int carry = -1; var block = new List<float>(2400);
+            int blockSize = 2400; // first block 100 ms so sound starts sooner, then 200 ms
+            while (chunk != null)
+            {
+                int i = 0;
+                if (carry >= 0 && chunk.Length > 0) { block.Add((short)(carry | chunk[0] << 8) / 32768f); i = 1; carry = -1; }
+                for (; i + 1 < chunk.Length; i += 2) block.Add((short)(chunk[i] | chunk[i + 1] << 8) / 32768f);
+                if (i < chunk.Length) carry = chunk[i];
+                if (block.Count >= blockSize) { onAudio(block.ToArray()); block.Clear(); blockSize = 4800; }
+
+                bool got;
+                try { got = win.Chunks.TryTake(out chunk, 8000, ct); }
+                catch (OperationCanceledException) { win.Abort = true; throw; }
+                catch (InvalidOperationException) { got = false; } // request finished
+                if (!got)
+                {
+                    if (!win.Chunks.IsCompleted) { win.Abort = true; ThaiModEntry.Warn("openai voice stalled mid-line"); }
+                    chunk = null;
                 }
             }
             if (block.Count > 0) onAudio(block.ToArray());
             NoteActivity();
-            if (any) consecutiveFails = 0; else Fail("no audio after retry");
-            return any;
+            consecutiveFails = 0;
+            return true;
+        }
+
+        private static bool TakeQuick(StreamJob j, out byte[] chunk, CancellationToken ct)
+        {
+            try { return j.Chunks.TryTake(out chunk, 25, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException) { chunk = null; return false; }
         }
 
         private static System.Collections.IEnumerator SendStream(StreamJob job)
@@ -632,7 +663,8 @@ namespace SWYF.ThaiMod
                         yield break;
                     }
                 }
-                Fail(job.Kind + " " + req.responseCode + " " + req.error + " " + body);
+                if (job.Critical) Fail(job.Kind + " " + req.responseCode + " " + req.error + " " + body);
+                else ThaiModEntry.Warn("background " + job.Kind + " voice failed: " + req.responseCode + " " + req.error);
                 job.Tcs.TrySetResult(null); job.Raw.TrySetResult(null);
             }
             req.Dispose();
