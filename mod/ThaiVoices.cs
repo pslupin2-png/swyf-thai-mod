@@ -11,7 +11,8 @@ using UnityEngine.Networking;
 namespace SWYF.ThaiMod
 {
     // Picks a Thai voice per character (gender + personality from the caller identity JSON) and, when a Gemini or
-    // OpenAI key is present in voice_keys.txt, synthesizes with Gemini TTS or OpenAI gpt-4o-mini-tts (24 kHz PCM).
+    // OpenAI key is present in voice_keys.txt, synthesizes with Gemini TTS (gemini-3.8-flash-tts, streamed) or OpenAI
+    // gpt-4o-mini-tts (streamed), 24 kHz PCM.
     // Otherwise ThaiTts falls back to the Windows voice with a gender-appropriate pitch.
     //
     // Speed: short filler lines ("อืม ได้...") are made ahead of time per caller and replayed from memory, and the
@@ -32,7 +33,30 @@ namespace SWYF.ThaiMod
         private static string workingGeminiModel;
         private static DateTime cooldownUntil = DateTime.MinValue;
         private static readonly object CfgGate = new object();
-        private static readonly string[] GeminiModels = { "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-tts" };
+        // First = default. gemini-3.8-flash-tts (Sept 2026) speaks Thai and streams audio as it is made; the older
+        // preview models only return the whole line at once (5-7 s for a long line).
+        private static readonly string[] GeminiModels = { "gemini-3.8-flash-tts", "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview" };
+        private const string GeminiLegacyFallback = "gemini-2.5-flash-preview-tts";
+        private static volatile bool geminiStreamBroken; // the streaming model refused our request: use the old way until keys change
+        private static DateTime geminiStreamPauseUntil = DateTime.MinValue; // 429 on the new model: older model for a minute
+
+        // Older TTS models want the style written into the prompt; 3.8+ takes it in speech_metadata.
+        private static bool IsLegacyGemini(string model) =>
+            model.IndexOf("2.5-", StringComparison.Ordinal) >= 0 || model.IndexOf("3.1-flash-tts", StringComparison.Ordinal) >= 0;
+
+        private static string GeminiStreamModel
+        {
+            get
+            {
+                if (geminiStreamBroken || DateTime.UtcNow < geminiStreamPauseUntil) return null;
+                string m = geminiModel.Length > 0 ? geminiModel : GeminiModels[0];
+                return IsLegacyGemini(m) ? null : m;
+            }
+        }
+
+        private static string GeminiUnaryModel =>
+            workingGeminiModel ?? (geminiModel.Length > 0 ? geminiModel
+                                   : geminiStreamBroken || DateTime.UtcNow < geminiStreamPauseUntil ? GeminiLegacyFallback : GeminiModels[0]);
 
         public static void Setup()
         {
@@ -47,7 +71,7 @@ namespace SWYF.ThaiMod
                     "# OpenAI: platform.openai.com > API keys (ต้องเติมเครดิตก่อน)\n" +
                     "gemini=\n" +
                     "openai=\n" +
-                    "# gemini_model=gemini-2.5-flash-preview-tts\n", new UTF8Encoding(false));
+                    "# gemini_model=gemini-3.8-flash-tts\n", new UTF8Encoding(false));
             }
             ThaiModEntry.Log("cloud Thai voices: " + Provider);
         }
@@ -75,6 +99,8 @@ namespace SWYF.ThaiMod
                     }
                     cooldownUntil = DateTime.MinValue;
                     warmBroken = false;
+                    geminiStreamBroken = false;
+                    geminiStreamPauseUntil = DateTime.MinValue;
                     ClearClips(); // keys changed: ready-made clips may be from another provider
                 }
                 catch { }
@@ -83,7 +109,12 @@ namespace SWYF.ThaiMod
 
         public static string Provider
         {
-            get { LoadCfg(); return geminiKey != null ? "gemini" : openaiKey != null ? "openai" : "off (no key in voice_keys.txt)"; }
+            get
+            {
+                LoadCfg();
+                if (geminiKey != null) return GeminiStreamModel != null ? "gemini (" + GeminiStreamModel + ", streaming)" : "gemini (" + GeminiUnaryModel + ")";
+                return openaiKey != null ? "openai (streaming)" : "off (no key in voice_keys.txt)";
+            }
         }
 
         private static string ClipProvider { get { LoadCfg(); return geminiKey != null ? "gemini" : openaiKey != null ? "openai" : "windows"; } }
@@ -227,6 +258,28 @@ namespace SWYF.ThaiMod
                    ". Native Central Thai (Bangkok) accent, every tone clear, brisk conversational phone-call pace. Say only the line itself:\n" + text;
         }
 
+        // Gemini 3.8: the text part holds only the words; how to say them goes in speech_metadata.style
+        // (style text placed before the words can get read aloud).
+        private static string GeminiStyle(string text, string voicePath, Gender g)
+        {
+            return "Speaking as " + Who(g, PersonaFor(voicePath)) + " Emotion: " + Mood(text, g) +
+                   ". Native Central Thai (Bangkok) accent, every tone clear, brisk conversational phone-call pace.";
+        }
+
+        private static string GeminiVoice(Gender gender, int h) =>
+            gender == Gender.Boss ? "Algenib" : gender == Gender.Female ? GeminiFemale[h % GeminiFemale.Length]
+            : gender == Gender.Male ? GeminiMale[h % GeminiMale.Length] : (h % 2 == 0 ? GeminiFemale : GeminiMale)[h % 8];
+
+        private static string GeminiBody(string model, string text, string voicePath, Gender gender)
+        {
+            string voice = GeminiVoice(gender, Hash(voicePath));
+            if (IsLegacyGemini(model))
+                return "{\"contents\":[{\"parts\":[{\"text\":" + Json(GeminiPrompt(text, voicePath, gender)) + "}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"]," +
+                       "\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"" + voice + "\"}}}}}";
+            return "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + Json(text) + ",\"speech_metadata\":{\"style\":" + Json(GeminiStyle(text, voicePath, gender)) + "}}]}]," +
+                   "\"generationConfig\":{\"responseModalities\":[\"AUDIO\"],\"speechConfig\":{\"voiceConfig\":{\"voice\":\"" + voice + "\"}}}}";
+        }
+
         // ---------- cloud synthesis (Gemini TTS / OpenAI gpt-4o-mini-tts) ----------
 
         private sealed class Job
@@ -264,18 +317,14 @@ namespace SWYF.ThaiMod
         {
             LoadCfg();
             NoteActivity();
-            int h = Hash(voicePath);
             var job = new Job();
             if (geminiKey != null)
             {
-                string voice = gender == Gender.Boss ? "Algenib" : gender == Gender.Female ? GeminiFemale[h % GeminiFemale.Length]
-                             : gender == Gender.Male ? GeminiMale[h % GeminiMale.Length] : (h % 2 == 0 ? GeminiFemale : GeminiMale)[h % 8];
-                string model = workingGeminiModel ?? (geminiModel.Length > 0 ? geminiModel : GeminiModels[0]);
+                string model = GeminiUnaryModel;
                 job.Kind = "gemini";
                 job.Url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
                 job.AuthHeader = "x-goog-api-key"; job.AuthValue = geminiKey;
-                job.Body = "{\"contents\":[{\"parts\":[{\"text\":" + Json(GeminiPrompt(text, voicePath, gender)) + "}]}],\"generationConfig\":{\"responseModalities\":[\"AUDIO\"]," +
-                           "\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"" + voice + "\"}}}}}";
+                job.Body = GeminiBody(model, text, voicePath, gender);
                 job.Critical = critical;
                 lock (pending) pending.Enqueue(job);
                 if (!job.Tcs.Task.Wait(20000)) { if (critical) Fail("timeout"); return null; }
@@ -285,7 +334,7 @@ namespace SWYF.ThaiMod
                 int rate = 24000;
                 int r = json.IndexOf("rate=", StringComparison.Ordinal);
                 if (r > 0) { int e = r + 5; while (e < json.Length && char.IsDigit(json[e])) e++; int.TryParse(json.Substring(r + 5, e - r - 5), out rate); }
-                byte[] pcm = Convert.FromBase64String(JsonStringValue(json, "data"));
+                byte[] pcm = GeminiSse.StripWav(Convert.FromBase64String(GeminiSse.Unescape64(JsonStringValue(json, "data"))), ref rate); // 3.8 returns WAV
                 return Resample(Pcm16(pcm), rate, 24000);
             }
             else
@@ -334,7 +383,7 @@ namespace SWYF.ThaiMod
         // those keep each clip the first time it is used.
         public static void PrepareFillers(string voicePath)
         {
-            if (string.IsNullOrEmpty(voicePath) || !CanStream) return;
+            if (string.IsNullOrEmpty(voicePath) || !CanStream || geminiKey != null) return;
             string who = ClipProvider + "|" + VoiceKey(voicePath);
             lock (ClipGate) { if (!prepared.Add(who)) return; }
             var gender = GenderFor(voicePath);
@@ -395,48 +444,97 @@ namespace SWYF.ThaiMod
             req.Dispose();
         }
 
-        // ---------- OpenAI streaming (audio starts playing while the rest is still being generated) ----------
+        // ---------- streaming (audio starts playing while the rest is still being generated) ----------
+        // OpenAI sends raw PCM. Gemini 3.8 sends server-sent events with base64 PCM inside (see GeminiSse).
 
-        public static bool CanStream { get { LoadCfg(); return geminiKey == null && openaiKey != null && DateTime.UtcNow >= cooldownUntil; } }
-
-        private sealed class StreamJob
+        public static bool CanStream
         {
-            public string Url, Body, Auth;
-            public BlockingCollection<byte[]> Chunks = new BlockingCollection<byte[]>();
-            public volatile bool Failed, Abort;
-        }
-        private static readonly Queue<StreamJob> streamPending = new Queue<StreamJob>();
-
-        private sealed class StreamSink : DownloadHandlerScript
-        {
-            private readonly StreamJob job;
-            public StreamSink(StreamJob j) : base(new byte[16384]) { job = j; }
-            protected override bool ReceiveData(byte[] data, int dataLength)
+            get
             {
-                if (dataLength <= 0) return true;
-                var copy = new byte[dataLength];
-                Buffer.BlockCopy(data, 0, copy, 0, dataLength);
-                try { job.Chunks.Add(copy); } catch { }
-                return true;
+                LoadCfg();
+                if (DateTime.UtcNow < cooldownUntil) return false;
+                return geminiKey != null ? GeminiStreamModel != null : openaiKey != null;
             }
         }
 
-        // Worker thread. Calls onAudio with ~100 ms float blocks as they arrive. Returns false if nothing was received.
-        // OpenAI sometimes sits on a request for 5+ seconds before the first byte. Instead of waiting it out, a
-        // second identical request goes out after 2.2 s; whichever starts sending audio first is used and the other
-        // is cancelled. Same voice either way, so the caller never changes voice mid-call.
-        private const double HedgeAfterSeconds = 2.2, GiveUpSeconds = 10.0;
+        private sealed class StreamJob
+        {
+            public string Url, Body, AuthHeader, AuthValue, Kind;
+            public BlockingCollection<byte[]> Chunks = new BlockingCollection<byte[]>();
+            public volatile bool Failed, Abort;
+            public volatile int Rate = 24000;
+        }
+        private static readonly Queue<StreamJob> streamPending = new Queue<StreamJob>();
 
-        public static bool StreamOpenAI(string text, string voicePath, Gender gender, Action<float[]> onAudio, CancellationToken ct)
+        // Error responses (anything but 200) are kept as text for the log and never played.
+        private sealed class StreamSink : DownloadHandlerScript
+        {
+            private readonly StreamJob job;
+            private readonly GeminiSse sse;
+            public UnityWebRequest Req;
+            public readonly StringBuilder ErrorText = new StringBuilder();
+            public string SseError => sse != null ? sse.LastError : null;
+
+            public StreamSink(StreamJob j) : base(new byte[16384])
+            {
+                job = j;
+                if (j.Kind == "gemini") sse = new GeminiSse(pcm => { job.Rate = sse.Rate; Add(pcm); });
+            }
+
+            private void Add(byte[] b) { try { job.Chunks.Add(b); } catch { } }
+
+            protected override bool ReceiveData(byte[] data, int dataLength)
+            {
+                if (dataLength <= 0) return true;
+                long code = Req != null ? Req.responseCode : 200;
+                if (code != 200 && code != 0)
+                {
+                    if (ErrorText.Length < 2000) ErrorText.Append(Encoding.UTF8.GetString(data, 0, dataLength));
+                    return true;
+                }
+                if (sse != null)
+                {
+                    try { sse.Feed(data, dataLength); }
+                    catch (Exception e) { ThaiModEntry.Warn("gemini stream: " + e.Message); }
+                    return true;
+                }
+                var copy = new byte[dataLength];
+                Buffer.BlockCopy(data, 0, copy, 0, dataLength);
+                Add(copy);
+                return true;
+            }
+
+            protected override void CompleteContent()
+            {
+                if (sse == null) return;
+                try { sse.End(); } catch (Exception e) { ThaiModEntry.Warn("gemini stream: " + e.Message); }
+            }
+        }
+
+        // Worker thread. Calls onAudio with 100-200 ms float blocks (24 kHz) as they arrive. Returns false if nothing came.
+        // A provider sometimes sits on a request for 5+ seconds (once 18 s) before the first byte. Instead of waiting it
+        // out, a second identical request goes out after ~2 s; whichever starts sending audio first is used and the
+        // other is cancelled. Same voice either way, so the caller never changes voice mid-call.
+        private const double HedgeAfterSeconds = 2.2, GeminiHedgeAfterSeconds = 3.0, GiveUpSeconds = 10.0;
+
+        public static bool StreamCloud(string text, string voicePath, Gender gender, Action<float[]> onAudio, CancellationToken ct)
         {
             LoadCfg();
             long last = Interlocked.Read(ref lastActivityTicks);
             string idle = last == 0 ? "first line" : "idle " + TimeSpan.FromTicks(DateTime.UtcNow.Ticks - last).TotalSeconds.ToString("0") + " s before";
             NoteActivity();
-            string url = "https://api.openai.com/v1/audio/speech", auth = "Bearer " + openaiKey, body = OpenAiBody(text, voicePath, gender);
+            bool gem = geminiKey != null;
+            string model = gem ? GeminiStreamModel : null;
+            if (gem && model == null) return false;
+            string kind = gem ? "gemini" : "openai";
+            string url = gem ? "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":streamGenerateContent?alt=sse"
+                             : "https://api.openai.com/v1/audio/speech";
+            string header = gem ? "x-goog-api-key" : "Authorization", value = gem ? geminiKey : "Bearer " + openaiKey;
+            string body = gem ? GeminiBody(model, text, voicePath, gender) : OpenAiBody(text, voicePath, gender);
+            double hedgeAfter = gem ? GeminiHedgeAfterSeconds : HedgeAfterSeconds;
             StreamJob Start()
             {
-                var j = new StreamJob { Url = url, Auth = auth, Body = body };
+                var j = new StreamJob { Url = url, Body = body, AuthHeader = header, AuthValue = value, Kind = kind };
                 lock (streamPending) streamPending.Enqueue(j);
                 return j;
             }
@@ -451,11 +549,12 @@ namespace SWYF.ThaiMod
                     ct.ThrowIfCancellationRequested();
                     double el = (DateTime.UtcNow - started).TotalSeconds;
                     if (el > GiveUpSeconds) break;
+                    if (gem && GeminiStreamModel == null) break; // refused or rate-limited: this line goes to the older model
                     bool aDead = a.Chunks.IsCompleted;
-                    if (b == null && (el > HedgeAfterSeconds || aDead))
+                    if (b == null && (el > hedgeAfter || aDead))
                     {
                         b = Start();
-                        ThaiModEntry.Log("openai voice " + (aDead ? "request failed" : "slow to start") + "; sent a second request");
+                        ThaiModEntry.Log(kind + " voice " + (aDead ? "request failed" : "slow to start") + "; sent a second request");
                     }
                     if (TakeQuick(a, out chunk, ct)) { win = a; break; }
                     if (b != null && TakeQuick(b, out chunk, ct)) { win = b; break; }
@@ -468,23 +567,25 @@ namespace SWYF.ThaiMod
             {
                 a.Abort = true; if (b != null) b.Abort = true;
                 NoteActivity();
-                Fail("no audio from 2 requests in " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.0") + " s");
+                if (gem && GeminiStreamModel == null) return false; // not a voice failure: this line goes to the older model
+                Fail("no audio from " + kind + " in " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.0") + " s");
                 return false;
             }
             var loser = win == a ? b : a;
             if (loser != null) loser.Abort = true;
-            ThaiModEntry.Log("openai first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars, " +
+            ThaiModEntry.Log(kind + " first audio " + (DateTime.UtcNow - started).TotalSeconds.ToString("0.00") + " s (" + text.Length + " chars, " +
                              idle + ")" + (win == b ? " (second request)" : ""));
 
+            int rate = win.Rate;
             int carry = -1; var block = new List<float>(2400);
-            int blockSize = 2400; // first block 100 ms so sound starts sooner, then 200 ms
+            int blockSize = rate / 10; // first block 100 ms so sound starts sooner, then 200 ms
             while (chunk != null)
             {
                 int i = 0;
                 if (carry >= 0 && chunk.Length > 0) { block.Add((short)(carry | chunk[0] << 8) / 32768f); i = 1; carry = -1; }
                 for (; i + 1 < chunk.Length; i += 2) block.Add((short)(chunk[i] | chunk[i + 1] << 8) / 32768f);
                 if (i < chunk.Length) carry = chunk[i];
-                if (block.Count >= blockSize) { onAudio(block.ToArray()); block.Clear(); blockSize = 4800; }
+                if (block.Count >= blockSize) { onAudio(Resample(block.ToArray(), rate, 24000)); block.Clear(); blockSize = rate / 5; }
 
                 bool got;
                 try { got = win.Chunks.TryTake(out chunk, 8000, ct); }
@@ -492,11 +593,11 @@ namespace SWYF.ThaiMod
                 catch (InvalidOperationException) { got = false; } // request finished
                 if (!got)
                 {
-                    if (!win.Chunks.IsCompleted) { win.Abort = true; ThaiModEntry.Warn("openai voice stalled mid-line"); }
+                    if (!win.Chunks.IsCompleted) { win.Abort = true; ThaiModEntry.Warn(kind + " voice stalled mid-line"); }
                     chunk = null;
                 }
             }
-            if (block.Count > 0) onAudio(block.ToArray());
+            if (block.Count > 0) onAudio(Resample(block.ToArray(), rate, 24000));
             NoteActivity();
             consecutiveFails = 0;
             return true;
@@ -514,10 +615,10 @@ namespace SWYF.ThaiMod
             var req = new UnityWebRequest(job.Url, "POST");
             req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(job.Body));
             req.uploadHandler.contentType = "application/json";
-            var sink = new StreamSink(job);
+            var sink = new StreamSink(job) { Req = req };
             req.downloadHandler = sink;
             req.disposeDownloadHandlerOnDispose = false;
-            req.SetRequestHeader("Authorization", job.Auth);
+            req.SetRequestHeader(job.AuthHeader, job.AuthValue);
             req.timeout = 30;
             var op = req.SendWebRequest();
             while (!op.isDone)
@@ -528,8 +629,23 @@ namespace SWYF.ThaiMod
             if (!job.Abort && req.result != UnityWebRequest.Result.Success)
             {
                 job.Failed = true;
-                ThaiModEntry.Warn("openai request failed: " + req.responseCode + " " + req.error);
+                string err = sink.ErrorText.ToString().Replace('\n', ' ');
+                if (err.Length > 300) err = err.Substring(0, 300);
+                ThaiModEntry.Warn(job.Kind + " request failed: " + req.responseCode + " " + req.error + " " + err);
+                long code = req.responseCode;
+                if (job.Kind == "gemini" && (code == 400 || code == 403 || code == 404) && !geminiStreamBroken)
+                {
+                    geminiStreamBroken = true;
+                    workingGeminiModel = null;
+                    ThaiModEntry.Warn("gemini streaming refused; using " + GeminiUnaryModel + " (whole line at once) until voice_keys.txt changes");
+                }
+                if (job.Kind == "gemini" && code == 429)
+                {
+                    geminiStreamPauseUntil = DateTime.UtcNow.AddSeconds(60);
+                    ThaiModEntry.Warn("gemini streaming rate-limited; " + GeminiLegacyFallback + " (whole line at once) for 60 s");
+                }
             }
+            else if (!job.Abort && sink.SseError != null) ThaiModEntry.Warn("gemini stream error: " + sink.SseError);
             job.Chunks.CompleteAdding();
             req.Dispose();
             sink.Dispose();

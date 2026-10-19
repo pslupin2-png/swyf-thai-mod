@@ -233,7 +233,7 @@ namespace SWYF.ThaiMod.Launcher
                 sb.Append("# บรรทัดที่ขึ้นต้นด้วย # คือคีย์ที่เก็บไว้แต่ไม่ได้ใช้\n");
                 sb.Append(current == "gemini" ? "gemini=" + geminiKey : (geminiKey.Length > 0 ? "#gemini=" + geminiKey : "gemini=")).Append('\n');
                 sb.Append(current == "openai" ? "openai=" + openaiKey : (openaiKey.Length > 0 ? "#openai=" + openaiKey : "openai=")).Append('\n');
-                sb.Append(geminiModel.Length > 0 ? "gemini_model=" + geminiModel : "# gemini_model=gemini-2.5-flash-preview-tts").Append('\n');
+                sb.Append(geminiModel.Length > 0 ? "gemini_model=" + geminiModel : "# gemini_model=gemini-3.8-flash-tts").Append('\n');
                 File.WriteAllText(VoicePath, sb.ToString(), new UTF8Encoding(false));
             }
             catch (Exception e) { SetStatus("บันทึกไม่ได้: " + e.Message, Bad); return; }

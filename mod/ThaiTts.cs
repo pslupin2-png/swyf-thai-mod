@@ -88,7 +88,7 @@ namespace SWYF.ThaiMod
                 ThaiVoices.PrepareFillers(voicePath);
                 ThaiCloudStt.NoteCallerLine(spoken);
 
-                // OpenAI: stream audio into the game as it arrives (first sound after ~1 s instead of the whole line).
+                // OpenAI / Gemini 3.8: stream audio into the game as it arrives (first sound after ~1 s instead of the whole line).
                 bool streamTried = false;
                 if (say.Length > 0 && ThaiVoices.CanStream)
                 {
@@ -99,7 +99,7 @@ namespace SWYF.ThaiMod
                     try
                     {
                         var gender = ThaiVoices.GenderFor(voicePath);
-                        streamed = ThaiVoices.StreamOpenAI(say, voicePath, gender, block =>
+                        streamed = ThaiVoices.StreamCloud(say, voicePath, gender, block =>
                         {
                             if (held != null)
                             {
@@ -111,7 +111,7 @@ namespace SWYF.ThaiMod
                         }, ct);
                     }
                     catch (OperationCanceledException) { throw; }
-                    catch (Exception e) { ThaiModEntry.Warn("openai stream error: " + e.Message); }
+                    catch (Exception e) { ThaiModEntry.Warn("voice stream error: " + e.Message); }
                     if (held != null)
                     {
                         int u = box[0];
@@ -119,9 +119,12 @@ namespace SWYF.ThaiMod
                     }
                     if (streamed || held != null) continue;
                 }
+                // Streaming failed: Windows voice for this line. But if the provider can no longer stream at all
+                // (Gemini refused the new model), the whole-line cloud request below still gets its turn.
+                bool streamFailed = streamTried && ThaiVoices.CanStream;
 
                 // Windows voice: on a long line, speak the first phrase while the rest is being made.
-                bool local = streamTried || !ThaiVoices.CloudUsable;
+                bool local = streamFailed || !ThaiVoices.CloudUsable;
                 if (local && ThaiSpeechText.SplitFirst(say, 12, 40, 50, out var first, out var rest))
                 {
                     float[] a = null;
@@ -141,7 +144,7 @@ namespace SWYF.ThaiMod
                 }
 
                 float[] pcm = null;
-                try { if (say.Length > 0) pcm = Speak(say, voicePath, ct, streamTried); }
+                try { if (say.Length > 0) pcm = Speak(say, voicePath, ct, streamFailed); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e) { ThaiModEntry.Warn("Thai TTS failed, using silent timing: " + e.Message); }
                 if (pcm == null || pcm.Length == 0) pcm = Silent(spoken); // silent fallback keeps subtitles moving
